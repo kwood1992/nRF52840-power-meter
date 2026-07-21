@@ -6,9 +6,19 @@
 #include <zephyr/drivers/uart.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
+#include <zephyr/sys/atomic.h>
 #include <zephyr/usb/usb_device.h>
 
 #include "pulse_accumulator.h"
+#include "pulse_edge_detector.h"
+
+/* Voltage threshold at which the phototransistor is considered "lit" for a
+ * meter-LED pulse. Adjust after seeing dark vs. bright readings on the bench.
+ * Typical dark on the TEPT4400 with a 47k load reads a few hundred mV; a
+ * torch/red LED at close range easily rails past 2 V. 1000 mV is a starting
+ * midpoint.
+ */
+#define PHOTOTRANSISTOR_THRESHOLD_MV 1000
 
 LOG_MODULE_REGISTER(main, LOG_LEVEL_INF);
 
@@ -22,6 +32,36 @@ static const struct gpio_dt_spec led = GPIO_DT_SPEC_GET(DT_ALIAS(led0), gpios);
  */
 static const struct adc_dt_spec phototransistor_adc =
 	ADC_DT_SPEC_GET(DT_PATH(zephyr_user));
+
+/* User button on XIAO D6 (P1.11), active-low with internal pull-up. This
+ * is the long-term Zigbee join / factory-reset button; short-term each
+ * press fires a falling-edge IRQ that increments a software pulse counter,
+ * which the sample loop feeds into pulse_accumulator_update() — the same
+ * way LPCOMP+PPI+TIMER will drive it in the final battery build.
+ */
+static const struct gpio_dt_spec user_button = GPIO_DT_SPEC_GET(DT_ALIAS(sw0), gpios);
+
+#define BENCH_DEBOUNCE_MS 5
+
+static atomic_t bench_pulse_count = ATOMIC_INIT(0);
+static int64_t bench_last_edge_ms;
+static struct gpio_callback user_button_cb;
+
+static void user_button_pressed(const struct device *dev,
+				 struct gpio_callback *cb,
+				 uint32_t pins)
+{
+	ARG_UNUSED(dev);
+	ARG_UNUSED(cb);
+	ARG_UNUSED(pins);
+
+	int64_t now = k_uptime_get();
+
+	if (now - bench_last_edge_ms >= BENCH_DEBOUNCE_MS) {
+		atomic_inc(&bench_pulse_count);
+		bench_last_edge_ms = now;
+	}
+}
 
 static void blink(int times, int on_ms, int off_ms)
 {
@@ -74,6 +114,27 @@ static int read_phototransistor_mv(int32_t *out_mv)
 	return 0;
 }
 
+static int user_button_setup(void)
+{
+	if (!device_is_ready(user_button.port)) {
+		return -ENODEV;
+	}
+
+	int err = gpio_pin_configure_dt(&user_button, GPIO_INPUT);
+
+	if (err) {
+		return err;
+	}
+
+	err = gpio_pin_interrupt_configure_dt(&user_button, GPIO_INT_EDGE_TO_ACTIVE);
+	if (err) {
+		return err;
+	}
+
+	gpio_init_callback(&user_button_cb, user_button_pressed, BIT(user_button.pin));
+	return gpio_add_callback(user_button.port, &user_button_cb);
+}
+
 int main(void)
 {
 	/* Boot indicator: 4 quick blinks means main() reached. */
@@ -107,17 +168,27 @@ int main(void)
 		}
 	}
 
+	if (user_button_setup()) {
+		while (1) {
+			blink(1, 500, 500);
+		}
+	}
+
 	/* Hold up to 5 s for a serial monitor to attach so early logs are
 	 * visible; then proceed regardless.
 	 */
 	wait_for_host_dtr_or_timeout(cdc, 5000);
 
 	LOG_INF("XIAO Zigbee Energy Meter booted");
-	LOG_INF("sampling phototransistor on A0 (AIN0) at 10 Hz");
+	LOG_INF("sampling phototransistor on A0 (AIN0) at 10 Hz, threshold=%d mV",
+		PHOTOTRANSISTOR_THRESHOLD_MV);
+	LOG_INF("user button on D6 (P1.11) — press to increment accumulator");
 
 	struct pulse_accumulator acc;
+	struct pulse_edge_detector detector;
 
 	pulse_accumulator_init(&acc);
+	pulse_edge_detector_init(&detector, PHOTOTRANSISTOR_THRESHOLD_MV);
 
 	uint32_t sample = 0;
 	uint32_t heartbeat_counter = 0;
@@ -125,6 +196,14 @@ int main(void)
 	while (1) {
 		int32_t mv = 0;
 		int err = read_phototransistor_mv(&mv);
+
+		if (!err && pulse_edge_detector_sample(&detector, mv)) {
+			atomic_inc(&bench_pulse_count);
+		}
+
+		uint32_t pulses = (uint32_t)atomic_get(&bench_pulse_count);
+
+		pulse_accumulator_update(&acc, pulses);
 
 		if (err) {
 			LOG_ERR("adc read failed: %d", err);

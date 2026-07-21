@@ -12,6 +12,7 @@ project(zigbee_energy_meter LANGUAGES C)
 target_sources(app PRIVATE
 	src/main.c
 	src/pulse_accumulator.c
+	src/pulse_edge_detector.c
 )
 
 target_include_directories(app PRIVATE src)

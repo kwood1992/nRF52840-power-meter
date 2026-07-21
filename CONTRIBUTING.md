@@ -130,6 +130,29 @@ absolutely nothing after. No LED, no USB CDC-ACM device enumerates.
 
 If we add MCUboot in future, sysbuild can safely be turned back on.
 
+### Board-qualified targets don't pick up `boards/*.overlay` — use `app.overlay`
+
+When you build for a fully-qualified board target (e.g. `xiao_ble/nrf52840/sense`
+rather than plain `xiao_ble`), Zephyr looks for `boards/xiao_ble_nrf52840_sense.overlay`
+— not the shorter `boards/xiao_ble.overlay`. Auto-discovery of `app.overlay`
+at the project root is also sometimes skipped depending on NCS version and
+build config. To avoid guessing, `CMakeLists.txt` in this project **force-loads
+`app.overlay`** via `EXTRA_DTC_OVERLAY_FILE` before `find_package(Zephyr)`.
+Keep new project-wide DT additions in `app.overlay`; if you need
+variant-specific tweaks, add them under `boards/<qualified_name>.overlay`.
+
+**Symptom if this breaks**: the C compiler complains about undeclared
+`__device_dts_ord_DT_N_S_zephyr_user_...` or similar generated macros —
+that means the DTS overlay wasn't parsed, so the DT-derived macros were
+never emitted.
+
+### `usb_enable()` returns `-EALREADY` on NCS 2.9.2
+
+NCS 2.9.2's USB device stack registers a `SYS_INIT` hook that calls
+`usb_enable()` before `main()` runs, so calling it again from `main()`
+returns `-EALREADY`. Treat that as success; only bail on a real failure.
+The current `src/main.c` shows the pattern.
+
 ### Verifying a UF2 has a correct vector table
 
 If a rebuild flashes silently, decode the first block of the UF2:

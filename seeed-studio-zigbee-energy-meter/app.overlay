@@ -1,18 +1,41 @@
 /*
- * Project overlay — always applied regardless of board target (`app.overlay`
- * at project root). Board-specific overlays under boards/ won't fire when
- * building for a SoC-specific variant like xiao_ble/nrf52840/sense unless
- * they're named exactly `xiao_ble_nrf52840_sense.overlay`; app.overlay
- * sidesteps that entirely.
+ * Project overlay — always applied regardless of board target. Forced into
+ * the DTS pipeline via EXTRA_DTC_OVERLAY_FILE in CMakeLists.txt.
  *
- * Adds an ADC channel on AIN0 (XIAO pin A0 / D0 / P0.02) for the
- * phototransistor input, exposed via the zephyr,user node so main.c can
- * grab it with ADC_DT_SPEC_GET(DT_PATH(zephyr_user)).
+ * Adds two things:
+ *  - An ADC channel on AIN0 (XIAO A0 / D0 / P0.02) for the phototransistor,
+ *    exposed through zephyr,user for main.c.
+ *  - A bench pulse-source button on P0.03 (XIAO A1 / D1). Wire a momentary
+ *    button between D1 and GND — internal pull-up + active-low means each
+ *    press pulls the pin LOW and fires a falling-edge interrupt. Same
+ *    software path we'll eventually feed with LPCOMP+PPI+TIMER.
  */
+
+#include <zephyr/dt-bindings/gpio/gpio.h>
 
 / {
 	zephyr,user {
 		io-channels = <&adc 0>;
+	};
+
+	buttons {
+		compatible = "gpio-keys";
+
+		/*
+		 * User button on XIAO D6 (P1.11). Long-term this is the Zigbee
+		 * join / factory-reset button; short-term we use each press as
+		 * a bench pulse for validating the accumulator + Zigbee report
+		 * pipeline. Once real Zigbee handlers land, this alias moves
+		 * into a proper button abstraction with short/long-press.
+		 */
+		user_button: user_button {
+			gpios = <&gpio1 11 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
+			label = "User button (XIAO D6 = P1.11)";
+		};
+	};
+
+	aliases {
+		sw0 = &user_button;
 	};
 };
 
