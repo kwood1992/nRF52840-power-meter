@@ -9,6 +9,8 @@
 #include <zephyr/sys/atomic.h>
 #include <zephyr/usb/usb_device.h>
 
+#include "nvs_store.h"
+#include "persist_policy.h"
 #include "pulse_accumulator.h"
 #include "pulse_edge_detector.h"
 
@@ -19,6 +21,20 @@
  * midpoint.
  */
 #define PHOTOTRANSISTOR_THRESHOLD_MV 1000
+
+/* Persistence policy: write the accumulator total to NVS on whichever of
+ * these fires first —
+ *   * every 5 minutes of wall-clock (matches the Zigbee report cadence
+ *     that lands in issue #5, so eventually one wake pays for both);
+ *   * every 100 counted pulses since the last save (safety net that bounds
+ *     data loss under a burst — 100 pulses at the default 1000 imp/kWh
+ *     is 0.1 kWh, a tolerable worst case).
+ * Rationale for the wall-clock number: 12 writes/hour × 24 = 288/day.
+ * With 8 sectors on storage_partition rotating and ~10k cycles/sector
+ * that's north of 7 years of headroom.
+ */
+#define PERSIST_INTERVAL_MS      (5U * 60U * 1000U)
+#define PERSIST_MAX_PULSE_DELTA  100ULL
 
 LOG_MODULE_REGISTER(main, LOG_LEVEL_INF);
 
@@ -186,9 +202,35 @@ int main(void)
 
 	struct pulse_accumulator acc;
 	struct pulse_edge_detector detector;
+	struct persist_policy policy;
 
 	pulse_accumulator_init(&acc);
 	pulse_edge_detector_init(&detector, PHOTOTRANSISTOR_THRESHOLD_MV);
+	persist_policy_init(&policy, PERSIST_INTERVAL_MS, PERSIST_MAX_PULSE_DELTA);
+
+	uint64_t last_saved_total = 0;
+	int64_t last_saved_ms = k_uptime_get();
+
+	int nvs_err = nvs_store_init();
+
+	if (nvs_err) {
+		LOG_ERR("nvs_store_init failed: %d — proceeding without persistence",
+			nvs_err);
+	} else {
+		uint64_t saved = 0;
+		int load_err = nvs_store_load_total(&saved);
+
+		if (load_err == 0) {
+			pulse_accumulator_restore(&acc, saved);
+			last_saved_total = saved;
+			LOG_INF("restored accumulator_total=%llu from NVS",
+				(unsigned long long)saved);
+		} else if (load_err == -ENOENT) {
+			LOG_INF("no persisted accumulator total — cold boot");
+		} else {
+			LOG_ERR("nvs_store_load_total failed: %d", load_err);
+		}
+	}
 
 	uint32_t sample = 0;
 	uint32_t heartbeat_counter = 0;
@@ -211,6 +253,23 @@ int main(void)
 			LOG_INF("sample=%u voltage_mv=%d accumulator_total=%llu",
 				sample++, mv,
 				(unsigned long long)pulse_accumulator_total(&acc));
+		}
+
+		uint64_t total = pulse_accumulator_total(&acc);
+		int64_t now = k_uptime_get();
+
+		if (persist_policy_should_write(&policy, total, last_saved_total,
+						(uint64_t)(now - last_saved_ms))) {
+			int save_err = nvs_store_save_total(total);
+
+			if (save_err) {
+				LOG_ERR("nvs_store_save_total failed: %d", save_err);
+			} else {
+				last_saved_total = total;
+				last_saved_ms = now;
+				LOG_INF("persisted accumulator_total=%llu",
+					(unsigned long long)total);
+			}
 		}
 
 		/* Toggle LED every 5 samples = 1 Hz heartbeat. */
