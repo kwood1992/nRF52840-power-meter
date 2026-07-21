@@ -10,9 +10,11 @@ find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(zigbee_energy_meter LANGUAGES C)
 
 target_sources(app PRIVATE
+	src/button_press_classifier.c
 	src/main.c
 	src/pulse_accumulator.c
 	src/pulse_edge_detector.c
+	src/zigbee_app.c
 )
 
 target_include_directories(app PRIVATE src)

@@ -9,8 +9,10 @@
 #include <zephyr/sys/atomic.h>
 #include <zephyr/usb/usb_device.h>
 
+#include "button_press_classifier.h"
 #include "pulse_accumulator.h"
 #include "pulse_edge_detector.h"
+#include "zigbee_app.h"
 
 /* Voltage threshold at which the phototransistor is considered "lit" for a
  * meter-LED pulse. Adjust after seeing dark vs. bright readings on the bench.
@@ -33,33 +35,71 @@ static const struct gpio_dt_spec led = GPIO_DT_SPEC_GET(DT_ALIAS(led0), gpios);
 static const struct adc_dt_spec phototransistor_adc =
 	ADC_DT_SPEC_GET(DT_PATH(zephyr_user));
 
-/* User button on XIAO D6 (P1.11), active-low with internal pull-up. This
- * is the long-term Zigbee join / factory-reset button; short-term each
- * press fires a falling-edge IRQ that increments a software pulse counter,
- * which the sample loop feeds into pulse_accumulator_update() — the same
- * way LPCOMP+PPI+TIMER will drive it in the final battery build.
+/* User button on XIAO D6 (P1.11), active-low with internal pull-up.
+ * Both a Zigbee join / factory-reset trigger and (temporarily, until
+ * issue #7 lands the LPCOMP hardware chain) a bench pulse source.
+ *
+ * Press classification: short (<1 s) → network steering, long (≥3 s)
+ * → factory reset. Presses that release in the 1–3 s gap do nothing.
+ * See docs/working/2026-07-22-zigbee-join.md for why the gap exists.
  */
 static const struct gpio_dt_spec user_button = GPIO_DT_SPEC_GET(DT_ALIAS(sw0), gpios);
 
-#define BENCH_DEBOUNCE_MS 5
+#define BENCH_DEBOUNCE_MS      5
+#define BUTTON_SHORT_MAX_MS    1000U
+#define BUTTON_LONG_MIN_MS     3000U
 
 static atomic_t bench_pulse_count = ATOMIC_INIT(0);
 static int64_t bench_last_edge_ms;
+static int64_t button_press_start_ms;
 static struct gpio_callback user_button_cb;
+static struct button_press_classifier button_classifier;
 
-static void user_button_pressed(const struct device *dev,
-				 struct gpio_callback *cb,
-				 uint32_t pins)
+static K_SEM_DEFINE(button_release_sem, 0, 1);
+static atomic_t button_press_duration_ms = ATOMIC_INIT(0);
+
+static void user_button_isr(const struct device *dev,
+			    struct gpio_callback *cb,
+			    uint32_t pins)
 {
 	ARG_UNUSED(dev);
 	ARG_UNUSED(cb);
 	ARG_UNUSED(pins);
 
 	int64_t now = k_uptime_get();
+	int value = gpio_pin_get_dt(&user_button);
 
-	if (now - bench_last_edge_ms >= BENCH_DEBOUNCE_MS) {
-		atomic_inc(&bench_pulse_count);
-		bench_last_edge_ms = now;
+	if (value == 1) {
+		/* Active — falling edge on the pin, i.e. press start.
+		 * Also increment the bench pulse count (removed by #7
+		 * when the LPCOMP hardware chain takes over the pulse
+		 * source).
+		 */
+		if (now - bench_last_edge_ms >= BENCH_DEBOUNCE_MS) {
+			atomic_inc(&bench_pulse_count);
+			bench_last_edge_ms = now;
+		}
+		button_press_start_ms = now;
+	} else {
+		/* Rising edge — press release. Publish the duration
+		 * for the main thread to classify + dispatch. Doing
+		 * the classification here would be fine but we keep
+		 * ZBOSS API calls off the IRQ path.
+		 */
+		int64_t duration = now - button_press_start_ms;
+
+		if (duration < 0) {
+			duration = 0;
+		}
+		/* atomic_val_t is signed long — clamp to INT32_MAX to
+		 * avoid a sign flip in the pathological "held forever"
+		 * case. 24 days is well past any real button hold.
+		 */
+		if (duration > INT32_MAX) {
+			duration = INT32_MAX;
+		}
+		atomic_set(&button_press_duration_ms, (atomic_val_t)duration);
+		k_sem_give(&button_release_sem);
 	}
 }
 
@@ -126,14 +166,47 @@ static int user_button_setup(void)
 		return err;
 	}
 
-	err = gpio_pin_interrupt_configure_dt(&user_button, GPIO_INT_EDGE_TO_ACTIVE);
+	err = gpio_pin_interrupt_configure_dt(&user_button, GPIO_INT_EDGE_BOTH);
 	if (err) {
 		return err;
 	}
 
-	gpio_init_callback(&user_button_cb, user_button_pressed, BIT(user_button.pin));
+	gpio_init_callback(&user_button_cb, user_button_isr, BIT(user_button.pin));
 	return gpio_add_callback(user_button.port, &user_button_cb);
 }
+
+static void button_dispatch_thread(void *a, void *b, void *c)
+{
+	ARG_UNUSED(a);
+	ARG_UNUSED(b);
+	ARG_UNUSED(c);
+
+	while (1) {
+		k_sem_take(&button_release_sem, K_FOREVER);
+
+		uint32_t duration = (uint32_t)atomic_get(&button_press_duration_ms);
+		enum button_press_kind kind =
+			button_press_classifier_classify(&button_classifier, duration);
+
+		switch (kind) {
+		case BUTTON_PRESS_SHORT:
+			LOG_INF("button short-press (%u ms) — joining", duration);
+			zigbee_app_start_join();
+			break;
+		case BUTTON_PRESS_LONG:
+			LOG_WRN("button long-press (%u ms) — factory reset", duration);
+			zigbee_app_factory_reset();
+			break;
+		case BUTTON_PRESS_NEITHER:
+			LOG_INF("button press (%u ms) ignored — outside short/long band",
+				duration);
+			break;
+		}
+	}
+}
+
+K_THREAD_DEFINE(button_dispatch_tid, 1024, button_dispatch_thread, NULL, NULL, NULL,
+		K_LOWEST_APPLICATION_THREAD_PRIO, 0, 0);
 
 int main(void)
 {
@@ -182,7 +255,18 @@ int main(void)
 	LOG_INF("XIAO Zigbee Energy Meter booted");
 	LOG_INF("sampling phototransistor on A0 (AIN0) at 10 Hz, threshold=%d mV",
 		PHOTOTRANSISTOR_THRESHOLD_MV);
-	LOG_INF("user button on D6 (P1.11) — press to increment accumulator");
+	LOG_INF("user button on D6 (P1.11) — short-press (<1 s) join, long-press (>=3 s) factory reset");
+
+	button_press_classifier_init(&button_classifier,
+				     BUTTON_SHORT_MAX_MS,
+				     BUTTON_LONG_MIN_MS);
+
+	int zb_err = zigbee_app_init();
+
+	if (zb_err) {
+		LOG_ERR("zigbee_app_init failed: %d — continuing without Zigbee",
+			zb_err);
+	}
 
 	struct pulse_accumulator acc;
 	struct pulse_edge_detector detector;
