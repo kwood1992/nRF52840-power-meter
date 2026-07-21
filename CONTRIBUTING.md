@@ -57,8 +57,14 @@ Point at the `seeed-studio-zigbee-energy-meter/` folder (the one containing
 ### 5. Create a build configuration and build
 
 - On the application, click *Add Build Configuration*
-- **Board**: `xiao_ble` (or `xiao_ble/nrf52840` on NCS ≥ v2.6 — the picker
-  shows what's available)
+- **Board target**: `xiao_ble/nrf52840/sense` (the XIAO nRF52840 board this
+  project targets is the Sense variant — identifiable by the onboard IMU
+  and PDM microphone visible on the top side, and by the `XIAO-SENSE`
+  volume that mounts in bootloader mode). For a plain XIAO nRF52840 use
+  `xiao_ble/nrf52840`.
+- **⚠️ Uncheck "Use sysbuild"** — see the Build Gotchas section below.
+  Leaving this on will produce firmware that flashes cleanly but silently
+  refuses to boot.
 - Leave the other defaults
 - Click *Build Configuration* to build
 
@@ -93,6 +99,55 @@ Expected output for the current skeleton:
 ```
 
 ---
+
+## Build gotchas
+
+### Sysbuild must be OFF (unless we also enable MCUboot)
+
+NCS 2.9.x's **sysbuild silently ignores `CONFIG_FLASH_LOAD_OFFSET` when
+MCUboot is disabled** ([zephyrproject-rtos/zephyr#88802](https://github.com/zephyrproject-rtos/zephyr/issues/88802)).
+The app gets linked at VMA `0x0` even though the config says `0x27000`. The
+UF2 writes the binary to physical flash `0x27000` (the address the Adafruit
+UF2 bootloader expects), but the vector table inside the binary contains
+low-range addresses. On boot the bootloader jumps to `0x27000`, reads a
+reset-handler pointer like `0x1dd0`, jumps to garbage, silent hard-fault.
+No LED, no USB, no serial, board looks dead.
+
+**Symptoms**: firmware flashes cleanly (no I/O error) but the board does
+absolutely nothing after. No LED, no USB CDC-ACM device enumerates.
+
+**Fix**:
+- In the VS Code build configuration, **uncheck "Use sysbuild"** (or
+  equivalent) when creating the config. If the option isn't in the GUI on
+  your extension version, add `--no-sysbuild` to Extra west build arguments.
+- **Wipe the `build/` folder entirely** — sysbuild leaves cached state that
+  survives Pristine Build:
+  ```bash
+  rm -rf seeed-studio-zigbee-energy-meter/build
+  ```
+- Rebuild. UF2 output moves from `build/<domain>/zephyr/zephyr.uf2` to
+  `build/zephyr/zephyr.uf2`.
+
+If we add MCUboot in future, sysbuild can safely be turned back on.
+
+### Verifying a UF2 has a correct vector table
+
+If a rebuild flashes silently, decode the first block of the UF2:
+
+```bash
+python3 <<'EOF'
+import struct
+d = open('seeed-studio-zigbee-energy-meter/build/zephyr/zephyr.uf2', 'rb').read()
+target = struct.unpack('<I', d[12:16])[0]
+sp     = struct.unpack('<I', d[32:36])[0]
+reset  = struct.unpack('<I', d[36:40])[0]
+print(f'writes to 0x{target:08x}, initial SP=0x{sp:08x}, reset handler=0x{reset:08x}')
+EOF
+```
+
+Reset handler must be in the range `0x00027001`–`0x0002FFFF` (Thumb bit set,
+inside the app slot). Anything under `0x00027000` means the linker didn't
+apply the flash offset — you've hit the sysbuild bug again.
 
 ## Alternative: CLI-only with `nrfutil`
 

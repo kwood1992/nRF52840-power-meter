@@ -1,0 +1,31 @@
+/*
+ * Project overlay — always applied regardless of board target (`app.overlay`
+ * at project root). Board-specific overlays under boards/ won't fire when
+ * building for a SoC-specific variant like xiao_ble/nrf52840/sense unless
+ * they're named exactly `xiao_ble_nrf52840_sense.overlay`; app.overlay
+ * sidesteps that entirely.
+ *
+ * Adds an ADC channel on AIN0 (XIAO pin A0 / D0 / P0.02) for the
+ * phototransistor input, exposed via the zephyr,user node so main.c can
+ * grab it with ADC_DT_SPEC_GET(DT_PATH(zephyr_user)).
+ */
+
+/ {
+	zephyr,user {
+		io-channels = <&adc 0>;
+	};
+};
+
+&adc {
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	channel@0 {
+		reg = <0>;
+		zephyr,gain = "ADC_GAIN_1_6";
+		zephyr,reference = "ADC_REF_INTERNAL";
+		zephyr,acquisition-time = <ADC_ACQ_TIME_DEFAULT>;
+		zephyr,input-positive = <NRF_SAADC_AIN0>;
+		zephyr,resolution = <12>;
+	};
+};
