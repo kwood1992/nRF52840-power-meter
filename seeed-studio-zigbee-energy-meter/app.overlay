@@ -2,31 +2,25 @@
  * Project overlay — always applied regardless of board target. Forced into
  * the DTS pipeline via EXTRA_DTC_OVERLAY_FILE in CMakeLists.txt.
  *
- * Adds two things:
- *  - An ADC channel on AIN0 (XIAO A0 / D0 / P0.02) for the phototransistor,
- *    exposed through zephyr,user for main.c.
- *  - A bench pulse-source button on P0.03 (XIAO A1 / D1). Wire a momentary
- *    button between D1 and GND — internal pull-up + active-low means each
- *    press pulls the pin LOW and fires a falling-edge interrupt. Same
- *    software path we'll eventually feed with LPCOMP+PPI+TIMER.
+ * Since #7, the phototransistor's pulse-counting path is
+ * LPCOMP → PPI → TIMER (all nrfx, configured in src/pulse_source_hw.c) —
+ * no DT overlay needed for the pulse chain. LPCOMP owns AIN0 (P0.02) at
+ * runtime and doesn't need a devicetree binding.
+ *
+ * What remains here is the D6 user button used by #4 for Zigbee join /
+ * factory reset.
  */
 
 #include <zephyr/dt-bindings/gpio/gpio.h>
 
 / {
-	zephyr,user {
-		io-channels = <&adc 0>;
-	};
-
 	buttons {
 		compatible = "gpio-keys";
 
 		/*
-		 * User button on XIAO D6 (P1.11). Long-term this is the Zigbee
-		 * join / factory-reset button; short-term we use each press as
-		 * a bench pulse for validating the accumulator + Zigbee report
-		 * pipeline. Once real Zigbee handlers land, this alias moves
-		 * into a proper button abstraction with short/long-press.
+		 * User button on XIAO D6 (P1.11). Short-press (<1 s) →
+		 * network steering, long-press (≥3 s) → factory reset;
+		 * see docs/working/2026-07-22-zigbee-join.md.
 		 */
 		user_button: user_button {
 			gpios = <&gpio1 11 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
@@ -36,19 +30,5 @@
 
 	aliases {
 		sw0 = &user_button;
-	};
-};
-
-&adc {
-	#address-cells = <1>;
-	#size-cells = <0>;
-
-	channel@0 {
-		reg = <0>;
-		zephyr,gain = "ADC_GAIN_1_6";
-		zephyr,reference = "ADC_REF_INTERNAL";
-		zephyr,acquisition-time = <ADC_ACQ_TIME_DEFAULT>;
-		zephyr,input-positive = <NRF_SAADC_AIN0>;
-		zephyr,resolution = <12>;
 	};
 };

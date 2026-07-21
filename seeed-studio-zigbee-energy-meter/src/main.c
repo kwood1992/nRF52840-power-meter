@@ -1,7 +1,6 @@
 #include <errno.h>
 
 #include <zephyr/device.h>
-#include <zephyr/drivers/adc.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/drivers/uart.h>
 #include <zephyr/kernel.h>
@@ -11,16 +10,23 @@
 
 #include "button_press_classifier.h"
 #include "pulse_accumulator.h"
-#include "pulse_edge_detector.h"
+#include "pulse_source_hw.h"
 #include "zigbee_app.h"
 
-/* Voltage threshold at which the phototransistor is considered "lit" for a
- * meter-LED pulse. Adjust after seeing dark vs. bright readings on the bench.
- * Typical dark on the TEPT4400 with a 47k load reads a few hundred mV; a
- * torch/red LED at close range easily rails past 2 V. 1000 mV is a starting
- * midpoint.
+/* LPCOMP trigger threshold. Round-trip: LPCOMP internal-reference ladder
+ * gives 15 steps of VDD/16, so this value is coerced to the nearest step
+ * inside pulse_source_hw_init() — see lpcomp_ref.[ch] for the mapping.
+ * 1000 mV @ 3.0 V VDD picks step 5/16 (~937 mV). Tune on the bench with a
+ * dark-vs-bright bench reading of the phototransistor.
  */
-#define PHOTOTRANSISTOR_THRESHOLD_MV 1000
+#define PHOTOTRANSISTOR_THRESHOLD_MV 1000U
+
+/* Nominal VDD for the LPCOMP reference. 2×AAA fresh reads ~3.0 V direct
+ * to BAT/VDD (no LDO). If we ever pipe a live SAADC read of VDD in, this
+ * becomes dynamic; for now the phototransistor threshold-choice is done
+ * once at boot against this constant.
+ */
+#define VDD_NOMINAL_MV 3000U
 
 LOG_MODULE_REGISTER(main, LOG_LEVEL_INF);
 
@@ -29,15 +35,15 @@ LOG_MODULE_REGISTER(main, LOG_LEVEL_INF);
  */
 static const struct gpio_dt_spec led = GPIO_DT_SPEC_GET(DT_ALIAS(led0), gpios);
 
-/* Phototransistor sampled on AIN0 = XIAO pin A0 / D0 / P0.02.
- * Wiring: thick leg -> 3V3, thin leg -> A0 and -> 47k -> GND.
+/* Phototransistor lives on AIN0 = XIAO pin A0 / D0 / P0.02. Wiring is
+ * unchanged from the bench setup: thick leg -> 3V3, thin leg -> A0 and
+ * -> 47k -> GND. LPCOMP reads it directly (no SAADC in the counting
+ * path).
  */
-static const struct adc_dt_spec phototransistor_adc =
-	ADC_DT_SPEC_GET(DT_PATH(zephyr_user));
 
 /* User button on XIAO D6 (P1.11), active-low with internal pull-up.
- * Both a Zigbee join / factory-reset trigger and (temporarily, until
- * issue #7 lands the LPCOMP hardware chain) a bench pulse source.
+ * Purely a Zigbee join / factory-reset trigger now — the bench
+ * pulse-counting role has moved to the LPCOMP hardware chain.
  *
  * Press classification: short (<1 s) → network steering, long (≥3 s)
  * → factory reset. Presses that release in the 1–3 s gap do nothing.
@@ -45,12 +51,9 @@ static const struct adc_dt_spec phototransistor_adc =
  */
 static const struct gpio_dt_spec user_button = GPIO_DT_SPEC_GET(DT_ALIAS(sw0), gpios);
 
-#define BENCH_DEBOUNCE_MS      5
 #define BUTTON_SHORT_MAX_MS    1000U
 #define BUTTON_LONG_MIN_MS     3000U
 
-static atomic_t bench_pulse_count = ATOMIC_INIT(0);
-static int64_t bench_last_edge_ms;
 static int64_t button_press_start_ms;
 static struct gpio_callback user_button_cb;
 static struct button_press_classifier button_classifier;
@@ -70,15 +73,7 @@ static void user_button_isr(const struct device *dev,
 	int value = gpio_pin_get_dt(&user_button);
 
 	if (value == 1) {
-		/* Active — falling edge on the pin, i.e. press start.
-		 * Also increment the bench pulse count (removed by #7
-		 * when the LPCOMP hardware chain takes over the pulse
-		 * source).
-		 */
-		if (now - bench_last_edge_ms >= BENCH_DEBOUNCE_MS) {
-			atomic_inc(&bench_pulse_count);
-			bench_last_edge_ms = now;
-		}
+		/* Active — falling edge on the pin, press start. */
 		button_press_start_ms = now;
 	} else {
 		/* Rising edge — press release. Publish the duration
@@ -123,35 +118,6 @@ static void wait_for_host_dtr_or_timeout(const struct device *cdc, int timeout_m
 		k_sleep(K_MSEC(100));
 		elapsed += 100;
 	}
-}
-
-static int read_phototransistor_mv(int32_t *out_mv)
-{
-	int16_t raw = 0;
-	struct adc_sequence seq = {
-		.buffer = &raw,
-		.buffer_size = sizeof(raw),
-	};
-	int err = adc_sequence_init_dt(&phototransistor_adc, &seq);
-
-	if (err) {
-		return err;
-	}
-
-	err = adc_read_dt(&phototransistor_adc, &seq);
-	if (err) {
-		return err;
-	}
-
-	int32_t mv = raw;
-
-	err = adc_raw_to_millivolts_dt(&phototransistor_adc, &mv);
-	if (err) {
-		return err;
-	}
-
-	*out_mv = mv;
-	return 0;
 }
 
 static int user_button_setup(void)
@@ -234,8 +200,7 @@ int main(void)
 		}
 	}
 
-	if (!adc_is_ready_dt(&phototransistor_adc) ||
-	    adc_channel_setup_dt(&phototransistor_adc)) {
+	if (pulse_source_hw_init(PHOTOTRANSISTOR_THRESHOLD_MV, VDD_NOMINAL_MV)) {
 		while (1) {
 			blink(1, 250, 250);
 		}
@@ -253,7 +218,7 @@ int main(void)
 	wait_for_host_dtr_or_timeout(cdc, 5000);
 
 	LOG_INF("XIAO Zigbee Energy Meter booted");
-	LOG_INF("sampling phototransistor on A0 (AIN0) at 10 Hz, threshold=%d mV",
+	LOG_INF("LPCOMP+PPI+TIMER pulse chain on AIN0, target threshold=%u mV",
 		PHOTOTRANSISTOR_THRESHOLD_MV);
 	LOG_INF("user button on D6 (P1.11) — short-press (<1 s) join, long-press (>=3 s) factory reset");
 
@@ -269,33 +234,20 @@ int main(void)
 	}
 
 	struct pulse_accumulator acc;
-	struct pulse_edge_detector detector;
 
 	pulse_accumulator_init(&acc);
-	pulse_edge_detector_init(&detector, PHOTOTRANSISTOR_THRESHOLD_MV);
 
 	uint32_t sample = 0;
 	uint32_t heartbeat_counter = 0;
 
 	while (1) {
-		int32_t mv = 0;
-		int err = read_phototransistor_mv(&mv);
+		uint32_t hw_count = pulse_source_hw_count();
 
-		if (!err && pulse_edge_detector_sample(&detector, mv)) {
-			atomic_inc(&bench_pulse_count);
-		}
+		pulse_accumulator_update(&acc, hw_count);
 
-		uint32_t pulses = (uint32_t)atomic_get(&bench_pulse_count);
-
-		pulse_accumulator_update(&acc, pulses);
-
-		if (err) {
-			LOG_ERR("adc read failed: %d", err);
-		} else {
-			LOG_INF("sample=%u voltage_mv=%d accumulator_total=%llu",
-				sample++, mv,
-				(unsigned long long)pulse_accumulator_total(&acc));
-		}
+		LOG_INF("sample=%u hw_count=%u accumulator_total=%llu",
+			sample++, hw_count,
+			(unsigned long long)pulse_accumulator_total(&acc));
 
 		/* Toggle LED every 5 samples = 1 Hz heartbeat. */
 		if (++heartbeat_counter >= 5) {
@@ -303,7 +255,12 @@ int main(void)
 			heartbeat_counter = 0;
 		}
 
-		k_sleep(K_MSEC(100));
+		/* Sample cadence at 1 s. LPCOMP+PPI+TIMER runs during
+		 * k_sleep() so no pulses are lost between reads —
+		 * previously the ADC path forced a 10 Hz wake to catch
+		 * edges, that's no longer required.
+		 */
+		k_sleep(K_MSEC(1000));
 	}
 
 	return 0;

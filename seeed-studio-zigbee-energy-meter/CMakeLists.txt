@@ -11,9 +11,10 @@ project(zigbee_energy_meter LANGUAGES C)
 
 target_sources(app PRIVATE
 	src/button_press_classifier.c
+	src/lpcomp_ref.c
 	src/main.c
 	src/pulse_accumulator.c
-	src/pulse_edge_detector.c
+	src/pulse_source_hw.c
 	src/zigbee_app.c
 )
 
