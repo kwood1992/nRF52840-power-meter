@@ -41,14 +41,12 @@ manager, build UI, serial terminal, RTT viewer, and Kconfig/DTS editors.
 
 Open the **nRF Connect** side panel (Nordic icon in the activity bar).
 
-- **Manage toolchains** → *Install Toolchain* → pick a version.
-  Any **NCS ≥ v2.6** builds the current walking-skeleton.
-  The full Zigbee integration requires the NCS version that pairs with
-  **ncs-zigbee R23** — check the pairing in Nordic's docs at the point you
-  start Zigbee work.
-- **Manage SDKs** → *Install SDK* → match the toolchain version.
+- **Manage toolchains** → *Install Toolchain* → pick **NCS v2.9.2**.
+- **Manage SDKs** → *Install SDK* → **NCS v2.9.2** (same as the toolchain).
 
 Downloads total ~2–3 GB; expect 10–20 min on a reasonable connection.
+
+**Why v2.9.2 specifically**: this project uses the [ncs-zigbee](https://github.com/nrfconnect/ncs-zigbee) add-on for the R23 Zigbee stack. The current stable add-on release (**v1.3.0**, bundling ZBOSS R23 v4.2.2.3) is pinned to NCS **v2.9.2**. Older ncs-zigbee (v1.0.0–v1.2.0) targets NCS v2.9.0. The nRF54LM20-preview branch targets NCS v3.1.0 but is for a different chip family and does not apply here.
 
 ### 4. Add this project as an application
 
@@ -103,11 +101,11 @@ For contributors who prefer the terminal. Install per Nordic's docs at
 
 ```bash
 nrfutil install sdk-manager toolchain-manager device
-nrfutil sdk-manager toolchain install --ncs-version <version>
-nrfutil sdk-manager install --ncs-version <version>
+nrfutil sdk-manager toolchain install --ncs-version v2.9.2
+nrfutil sdk-manager install --ncs-version v2.9.2
 
 # Drop into an env-active shell (west, ZEPHYR_BASE, toolchain on PATH):
-nrfutil sdk-manager toolchain launch --ncs-version <version> --shell
+nrfutil sdk-manager toolchain launch --ncs-version v2.9.2 --shell
 
 cd seeed-studio-zigbee-energy-meter
 west build -b xiao_ble -p always
