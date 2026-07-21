@@ -1,0 +1,42 @@
+# West manifest for the XIAO nRF52840 Zigbee energy-meter project.
+#
+# Makes this repo a self-contained T2-topology west workspace: sdk-nrf
+# is imported wholesale (pulling in Zephyr, hal_nordic, mbedtls, tf-m,
+# and every other NCS module), and ncs-zigbee is added as an extra
+# project so the R23 Zigbee stack lands alongside the SDK.
+#
+# Contributor init flow (from a clean directory):
+#
+#   west init -m https://github.com/kwood1992/nRF52840-power-meter workspace
+#   cd workspace
+#   west update
+#   cd nrf52840-power-meter/seeed-studio-zigbee-energy-meter
+#   west build -b xiao_ble/nrf52840/sense --no-sysbuild
+#
+# Version pinning rationale (see docs and CONTRIBUTING.md):
+#   * NCS v2.9.2 — required by ncs-zigbee v1.3.0.
+#   * ncs-zigbee v1.3.0 — current stable, bundles ZBOSS R23 v4.2.2.3.
+#   * These versions are the ONLY pairing that lands the R23 stack on a
+#     supported NCS release; do not upgrade either half in isolation.
+manifest:
+  version: "0.13"
+
+  remotes:
+    - name: ncs
+      url-base: https://github.com/nrfconnect
+
+  projects:
+    - name: sdk-nrf
+      remote: ncs
+      repo-path: sdk-nrf
+      revision: v2.9.2
+      import: true
+
+    - name: ncs-zigbee
+      remote: ncs
+      repo-path: ncs-zigbee
+      revision: v1.3.0
+      path: modules/lib/ncs-zigbee
+
+  self:
+    path: nrf52840-power-meter
