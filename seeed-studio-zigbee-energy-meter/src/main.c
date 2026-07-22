@@ -209,7 +209,16 @@ int main(void)
 	persist_policy_init(&policy, PERSIST_INTERVAL_MS, PERSIST_MAX_PULSE_DELTA);
 
 	uint64_t last_saved_total = 0;
-	int64_t last_saved_ms = k_uptime_get();
+	/* Backdate last_saved_ms by the full persist interval so the *first*
+	 * time the total changes after boot triggers an immediate write via
+	 * the wall-clock arm of persist_policy_should_write(). Rationale:
+	 * without this, a bench cycle of "press N<100 times, reboot within
+	 * 5 min" never fires either safety net and NVS stays empty — a
+	 * legitimate flashed-and-verified test looks identical to a broken
+	 * NVS mount. One extra write per boot in the field is negligible
+	 * against the 288/day steady-state budget.
+	 */
+	int64_t last_saved_ms = k_uptime_get() - (int64_t)PERSIST_INTERVAL_MS;
 
 	int nvs_err = nvs_store_init();
 

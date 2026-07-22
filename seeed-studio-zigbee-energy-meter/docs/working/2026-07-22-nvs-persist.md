@@ -25,6 +25,13 @@ Write to NVS on whichever fires first:
 
 And never write if the total hasn't changed.
 
+**First-persist after boot**: `main.c` backdates `last_saved_ms` by the
+full interval so the very first counted pulse after boot triggers an
+immediate write. Without this, a bench cycle of "press < 100 times,
+reboot within 5 min" never fires either safety net — NVS stays empty
+and cold boot looks identical to a broken mount. Costs one extra write
+per boot in the field, negligible against the 288/day budget.
+
 ## Why these numbers
 
 **5-min cadence** — aligns with the design doc's 5-min Zigbee report
@@ -42,14 +49,18 @@ bursts for bounded loss.
 
 ## What was NOT verified
 
-- **No bench verification.** The board wasn't flashed as part of this
-  slice. The acceptance-criteria "press button N times, hit reset,
-  confirm log continues from N" needs a real device. When flashing:
-  - Watch for `restored accumulator_total=X` on cold boot (post-reset).
-  - Press button > 100 times to trigger the pulse-delta safety net;
-    confirm a `persisted accumulator_total=X` log appears.
-  - Wait 5+ min without pressing; confirm the wall-clock write fires
-    if the total has advanced.
+- **First bench cycle observed the "cold boot" trap**: flashed board
+  logged `no persisted accumulator total — cold boot` after every
+  reset because neither safety net had fired between resets
+  (< 100 presses, < 5 min uptime). Fixed by backdating `last_saved_ms`
+  at boot (see policy note above). Re-verify by:
+  - Press button once, watch for `persisted accumulator_total=1`.
+  - Reset, watch for `restored accumulator_total=1 from NVS`.
+  - Continue pressing; steady-state cadence should now be 5-min or
+    100-pulse, whichever fires first.
+  - Optional stress: press button > 100 times in quick succession
+    without waiting for the wall-clock; confirm the pulse-delta safety
+    net fires.
 
 ## Related
 
