@@ -29,6 +29,13 @@ manifest:
     - name: sdk-nrf
       remote: ncs
       repo-path: sdk-nrf
+      # `path: nrf` is required: sdk-nrf's internal Kconfig sources
+      # reference sibling modules as `${ZEPHYR_BASE}/../nrf/subsys/...`
+      # (e.g. bootloader/Kconfig sourcing partition_manager templates).
+      # Without this, west drops sdk-nrf at `<workspace>/sdk-nrf/`
+      # (default = project name) and Kconfig parse fails with
+      # "Kconfig.template.build_strategy not found".
+      path: nrf
       revision: v2.9.2
       import: true
 
