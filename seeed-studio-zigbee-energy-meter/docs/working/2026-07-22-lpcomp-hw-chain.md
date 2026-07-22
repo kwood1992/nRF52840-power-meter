@@ -87,10 +87,18 @@ line and moving the constant if pulses under-count.
 - Depends on #4 (this branch is stacked on `afk/issue-4-zigbee-join`).
   The button IRQ scaffolding #4 introduced stays intact; this PR
   just deletes the bench-pulse-counting call inside it.
-- Interacts with #2 (NVS persist) at the accumulator level only —
+- Interacts with #2 (NVS persist) at the accumulator level:
   `pulse_source_hw_count()` returns a 32-bit hw counter that feeds
-  `pulse_accumulator_update()`, whose downstream persistence path
-  is unchanged.
+  `pulse_accumulator_update()` as before. **Contract change**:
+  `pulse_accumulator_restore()` now takes a third argument —
+  `current_hw_counter` — because a hardware TIMER can retain a
+  non-zero value across a warm reboot (Zigbee-triggered reboot,
+  watchdog, System-ON sleep exit). The old 2-arg form set
+  `last_hw = 0` and would have double-counted the retained value
+  into the restored total. Callers in #2's boot path must read
+  `pulse_source_hw_count()` immediately before restoring and pass
+  the value through. Host tests cover the warm-reboot case, including
+  restore near a 32-bit TIMER wrap.
 - Once #5 (Metering cluster + 5-min reports) lands, the sample loop
   will move from 1 Hz polling to an RTC-driven 5-min wake — the
   hw counter can go longer than that between reads without loss.
