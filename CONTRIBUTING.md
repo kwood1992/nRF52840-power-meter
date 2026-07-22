@@ -172,9 +172,40 @@ Reset handler must be in the range `0x00027001`–`0x0002FFFF` (Thumb bit set,
 inside the app slot). Anything under `0x00027000` means the linker didn't
 apply the flash offset — you've hit the sysbuild bug again.
 
-## Alternative: CLI-only with `nrfutil`
+## Alternative: self-contained west workspace
 
-For contributors who prefer the terminal. Install per Nordic's docs at
+The repo ships a [`west.yml`](west.yml) manifest that pins NCS v2.9.2 and
+ncs-zigbee v1.3.0 (ZBOSS R23 v4.2.2.3). This is the reproducible path —
+`west init` produces the exact SDK + Zigbee-stack combination the app is
+built against, without a shared NCS install to keep in sync. Use this
+for CI, for a fresh machine, or when you want the SDK checkout scoped
+next to the project.
+
+Prerequisites: Python 3.10+, `west` (`pip install west`), and a working
+Zephyr toolchain (either from `nrfutil sdk-manager toolchain install`
+or the VS Code extension pack).
+
+```bash
+# 1. Init the workspace pointing at this repo
+west init -m https://github.com/kwood1992/nRF52840-power-meter workspace
+cd workspace
+west update            # ~10–20 min: pulls sdk-nrf + all NCS modules + ncs-zigbee
+west zephyr-export
+
+# 2. Build from the app subdirectory
+cd nrf52840-power-meter/seeed-studio-zigbee-energy-meter
+west build -b xiao_ble/nrf52840/sense --no-sysbuild -p always
+```
+
+Flash with UF2 as above, or `west flash` if you have a debugger.
+
+**Sysbuild must stay off** — same reason as the VS Code flow (see the
+Build Gotchas section). The `--no-sysbuild` flag is required.
+
+## Alternative: CLI-only with `nrfutil` against a shared NCS install
+
+For contributors with an existing NCS install they want to share across
+projects. Install per Nordic's docs at
 <https://www.nordicsemi.com/Products/Development-tools/nRF-Util>.
 
 ```bash
@@ -186,7 +217,7 @@ nrfutil sdk-manager install --ncs-version v2.9.2
 nrfutil sdk-manager toolchain launch --ncs-version v2.9.2 --shell
 
 cd seeed-studio-zigbee-energy-meter
-west build -b xiao_ble -p always
+west build -b xiao_ble/nrf52840/sense --no-sysbuild -p always
 ```
 
 Flash with UF2 as above, or `nrfutil device program --firmware build/zephyr/zephyr.hex` over SWD if you have a debugger attached.
