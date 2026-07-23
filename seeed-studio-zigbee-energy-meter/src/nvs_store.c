@@ -22,12 +22,12 @@ int nvs_store_init(void)
 		return 0;
 	}
 
-	fs.flash_device = FIXED_PARTITION_DEVICE(storage_partition);
+	fs.flash_device = FIXED_PARTITION_DEVICE(nvs_storage);
 	if (!device_is_ready(fs.flash_device)) {
 		return -ENODEV;
 	}
 
-	fs.offset = FIXED_PARTITION_OFFSET(storage_partition);
+	fs.offset = FIXED_PARTITION_OFFSET(nvs_storage);
 
 	struct flash_pages_info info;
 	int rc = flash_get_page_info_by_offs(fs.flash_device, fs.offset, &info);
@@ -37,10 +37,10 @@ int nvs_store_init(void)
 	}
 
 	fs.sector_size = info.size;
-	/* storage_partition is 32 KB = 8 x 4 KB sectors on nRF52840. Give
+	/* nvs_storage is 32 KB = 8 x 4 KB sectors on nRF52840. Give
 	 * NVS all of them so wear-leveling has maximum runway.
 	 */
-	fs.sector_count = FIXED_PARTITION_SIZE(storage_partition) / info.size;
+	fs.sector_count = FIXED_PARTITION_SIZE(nvs_storage) / info.size;
 
 	rc = nvs_mount(&fs);
 	if (rc) {
