@@ -1,5 +1,8 @@
 // Z2M external converter for the XIAO nRF52840 Zigbee Energy Meter.
 //
+// Install steps live in the repo README under
+// "Home Assistant / Zigbee2MQTT setup".
+//
 // Uses ES-module syntax (`import` / `export default`) — that's what
 // Z2M 2.x's external-converter loader parses.
 //
@@ -23,18 +26,6 @@
 // an `energy` sensor in kWh (Multiplier=1, Divisor=1000 are applied by
 // the modernExtend electricityMeter helper, matching what the design
 // doc sets on-device).
-//
-// Install (Home Assistant OS + Z2M add-on):
-//   1. Copy this file to /homeassistant/zigbee2mqtt/external_converters/
-//      (the older `/config`-based Z2M layout) OR to
-//      /addon_configs/<slug>_zigbee2mqtt/external_converters/ on newer
-//      installs. Check where /homeassistant/zigbee2mqtt/configuration.yaml
-//      lives — the external_converters/ dir goes next to it.
-//   2. Enable the converter in Z2M's configuration.yaml. The path is
-//      relative to Z2M's config dir, not absolute:
-//        external_converters:
-//          - external_converters/xiao-power-meter.js
-//   3. Restart the Z2M add-on.
 
 import * as m from 'zigbee-herdsman-converters/lib/modernExtend';
 
