@@ -27,13 +27,22 @@
 /* Persistence policy: write the accumulator total to NVS on whichever of
  * these fires first —
  *   * every 5 minutes of wall-clock (matches the Zigbee report cadence
- *     that lands in issue #5, so eventually one wake pays for both);
+ *     from issue #5, so one wake pays for both persistence and report);
  *   * every 100 counted pulses since the last save (safety net that bounds
  *     data loss under a burst — 100 pulses at the default 1000 imp/kWh
  *     is 0.1 kWh, a tolerable worst case).
  */
 #define PERSIST_INTERVAL_MS      (5U * 60U * 1000U)
 #define PERSIST_MAX_PULSE_DELTA  100ULL
+
+/* Zigbee Metering-cluster report cadence. Matches the design doc's
+ * 5-min target and is the cadence Home Assistant's Energy Dashboard
+ * expects for a "sum of energy over 5 min" datapoint. On a proper
+ * low-power build (issue #6/#7) this k_work_delayable becomes the RTC
+ * wake source; today's non-suspending build fires the work at wall
+ * clock cadence, which is functionally identical for Z2M's purposes.
+ */
+#define ZIGBEE_REPORT_INTERVAL_MS  (5U * 60U * 1000U)
 
 /* Button press bands. Anything in the 1–3 s gap is ignored to avoid
  * accidental factory-resets when the user meant "short press". See
@@ -223,6 +232,39 @@ static void button_dispatch_thread(void *a, void *b, void *c)
 K_THREAD_DEFINE(button_dispatch_tid, 1024, button_dispatch_thread, NULL, NULL, NULL,
 		K_LOWEST_APPLICATION_THREAD_PRIO, 0, 0);
 
+/* 5-minute Zigbee metering-report tick. Kept in the shared struct
+ * pulse_accumulator (declared in main() below) via the file-scope
+ * pointer so the work handler can read the live total without a
+ * separate synchronization primitive — pulse_accumulator_total() is
+ * atomic in practice for our access pattern (single writer, single
+ * reader, uint64_t read on ARM is not tearable on 32-bit boundaries
+ * but the sample loop and this work run on different threads so the
+ * odd stale read is acceptable; the next tick corrects it).
+ */
+static struct pulse_accumulator *report_accumulator;
+
+static void metering_report_work_handler(struct k_work *work);
+static K_WORK_DELAYABLE_DEFINE(metering_report_work,
+			       metering_report_work_handler);
+
+static void metering_report_work_handler(struct k_work *work)
+{
+	ARG_UNUSED(work);
+
+	if (report_accumulator == NULL) {
+		return;
+	}
+
+	uint64_t total = pulse_accumulator_total(report_accumulator);
+
+	LOG_INF("metering report tick: CurrentSummationDelivered=%llu",
+		(unsigned long long)total);
+	zigbee_app_publish_summation(total);
+
+	k_work_reschedule(&metering_report_work,
+			  K_MSEC(ZIGBEE_REPORT_INTERVAL_MS));
+}
+
 int main(void)
 {
 	/* Boot indicator: 4 quick blinks means main() reached. */
@@ -325,6 +367,18 @@ int main(void)
 	uint32_t sample = 0;
 	uint32_t heartbeat_counter = 0;
 
+	/* Publish the just-restored total once so Z2M sees a live
+	 * value on the very first read, even before the first pulse
+	 * lands or the 5-min report tick fires. Also arm the 5-min
+	 * report cadence.
+	 */
+	report_accumulator = &acc;
+	uint64_t last_published_total = pulse_accumulator_total(&acc);
+
+	zigbee_app_publish_summation(last_published_total);
+	k_work_reschedule(&metering_report_work,
+			  K_MSEC(ZIGBEE_REPORT_INTERVAL_MS));
+
 	while (1) {
 		int32_t mv = 0;
 		int err = read_phototransistor_mv(&mv);
@@ -339,6 +393,21 @@ int main(void)
 
 		pulse_accumulator_update(&acc, pulses);
 
+		uint64_t total = pulse_accumulator_total(&acc);
+
+		if (total != last_published_total) {
+			/* Push the fresh total into the Metering attribute
+			 * so a manual Z2M read returns live data without
+			 * waiting for the 5-min tick. Fires on both ADC-
+			 * edge counts AND button-triggered bench pulses
+			 * (the button ISR bumps bench_pulse_count directly,
+			 * which advances the accumulator on the next sample
+			 * iteration even though `edge` is false here).
+			 */
+			zigbee_app_publish_summation(total);
+			last_published_total = total;
+		}
+
 		if (err) {
 			LOG_ERR("adc read failed: %d", err);
 		} else if (edge) {
@@ -352,7 +421,6 @@ int main(void)
 		}
 		sample++;
 
-		uint64_t total = pulse_accumulator_total(&acc);
 		int64_t now = k_uptime_get();
 
 		if (persist_policy_should_write(&policy, total, last_saved_total,

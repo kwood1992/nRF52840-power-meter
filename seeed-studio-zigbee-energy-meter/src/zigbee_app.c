@@ -12,32 +12,73 @@
 #include <zigbee/zigbee_error_handler.h>
 #include <zb_nrf_platform.h>
 
-#include "zb_range_extender.h"
+#include "metering_scale.h"
+#include "zb_meter_ep.h"
 
 LOG_MODULE_REGISTER(zigbee_app, LOG_LEVEL_INF);
 
 /*
- * Endpoint 10 chosen arbitrarily but conventionally — Nordic's own
- * Metering samples land clusters on endpoint 10 too, which makes
- * Z2M's default cluster discovery just work. Move if we need to
- * host multiple endpoints later.
+ * Endpoint 10 — same slot the ncs-zigbee samples land clusters on,
+ * which makes Z2M's default cluster discovery just work. If we ever
+ * grow a second endpoint (e.g. a Power Configuration cluster on its
+ * own EP), pick 11 for it and keep this one metering-only.
  */
 #define APP_ENDPOINT 10
 
 /*
- * Minimal-viable Zigbee endpoint: Basic (0x0000) + Identify (0x0003)
- * as servers. Uses the "Range Extender" device type (0x0008) from
- * ncs-zigbee's template because it's the smallest HA profile that
- * exposes exactly those two clusters and nothing else. The actual
- * Metering cluster (0x0702) that reports kWh gets added in issue #5;
- * this baseline is what's needed for the device to be commissionable
- * at all — without a registered device context, ZBOSS asserts inside
- * bdb_start_top_level_commissioning().
+ * Design-doc defaults for the Metering cluster (see the "Zigbee model"
+ * row): Multiplier=1, Divisor=1000, UnitOfMeasure=0 (kWh),
+ * SummationFormatting=0 (no additional formatting hints — Z2M knows to
+ * apply Divisor). MeteringDeviceType=0 = "Electric Metering".
+ *
+ * The pulse-count-to-kWh math lives in Z2M: kWh = raw_summation ×
+ * Multiplier ÷ Divisor. On a 1000 imp/kWh meter the raw summation IS
+ * the pulse count, and Divisor=1000 gives Z2M kWh directly. If a field
+ * meter turns out to be, say, 800 imp/kWh, the fix is Divisor=800 —
+ * changeable at runtime via a Z2M attribute write, no reflash needed.
  */
+#define METERING_MULTIPLIER      1U
+#define METERING_DIVISOR         1000U
+#define METERING_UNIT_KWH        ZB_ZCL_METERING_UNIT_OF_MEASURE_DEFAULT_VALUE  /* 0 = kWh */
+#define METERING_SUMM_FORMATTING 0U
+#define METERING_DEVICE_TYPE     0U  /* 0 = Electric Metering per SE 1.4 D.5.2.2.5.2 */
+
+/*
+ * Basic-cluster identity strings. These are the fingerprint Z2M's
+ * external converter matches on (`zigbeeModel` + manufacturer). Kept
+ * short and stable — changing them after commissioning would strand
+ * paired coordinators. `SW_BUILD_ID` is a free-form version string
+ * — updated by the CI when we start tagging releases; today it
+ * mirrors the branch state.
+ */
+#define BASIC_APP_VERSION      0x01
+#define BASIC_STACK_VERSION    0x03  /* ZBOSS R23 */
+#define BASIC_HW_VERSION       0x01
+#define BASIC_MANUF_NAME       "kwood1992"
+#define BASIC_MODEL_ID         "xiao-power-meter"
+#define BASIC_DATE_CODE        "20260723"  /* commissioning start — see #5 */
+#define BASIC_LOCATION_DESC    ""
+#define BASIC_SW_BUILD_ID      "0.5.0"
 
 struct zb_device_ctx {
-	zb_zcl_basic_attrs_t basic_attr;
+	zb_zcl_basic_attrs_ext_t basic_attr;
 	zb_zcl_identify_attrs_t identify_attr;
+
+	/* Metering (0x0702) attribute storage. Manually broken out
+	 * because we want the EXT variant of the ZBOSS attribute-list
+	 * macro (adds Multiplier/Divisor) and its bundled struct
+	 * `zb_zcl_metering_attrs_t` doesn't include those fields.
+	 */
+	zb_uint48_t metering_current_summation;
+	zb_uint8_t  metering_status;
+	zb_uint8_t  metering_unit_of_measure;
+	zb_uint8_t  metering_summation_formatting;
+	zb_uint8_t  metering_device_type;
+	zb_int24_t  metering_instantaneous_demand;
+	zb_uint8_t  metering_demand_formatting;
+	zb_uint8_t  metering_historical_consumption_formatting;
+	zb_uint24_t metering_multiplier;
+	zb_uint24_t metering_divisor;
 };
 
 static struct zb_device_ctx dev_ctx;
@@ -46,17 +87,50 @@ ZB_ZCL_DECLARE_IDENTIFY_ATTRIB_LIST(
 	identify_attr_list,
 	&dev_ctx.identify_attr.identify_time);
 
-ZB_ZCL_DECLARE_BASIC_ATTRIB_LIST(
+/* EXT variant adds manufacturer name, model ID, hardware/app/stack
+ * version, date code, location description, physical environment and
+ * software build ID — Z2M's fingerprint match keys off manufacturer
+ * name + model ID. Without them the auto-generated definition has
+ * `zigbeeModel: ['']` and no external converter can attach.
+ */
+ZB_ZCL_DECLARE_BASIC_ATTRIB_LIST_EXT(
 	basic_attr_list,
 	&dev_ctx.basic_attr.zcl_version,
-	&dev_ctx.basic_attr.power_source);
+	&dev_ctx.basic_attr.app_version,
+	&dev_ctx.basic_attr.stack_version,
+	&dev_ctx.basic_attr.hw_version,
+	dev_ctx.basic_attr.mf_name,
+	dev_ctx.basic_attr.model_id,
+	dev_ctx.basic_attr.date_code,
+	&dev_ctx.basic_attr.power_source,
+	dev_ctx.basic_attr.location_id,
+	&dev_ctx.basic_attr.ph_env,
+	dev_ctx.basic_attr.sw_ver);
 
-ZB_DECLARE_RANGE_EXTENDER_CLUSTER_LIST(
+/* EXT variant so Multiplier/Divisor land in the attribute table
+ * (the plain ATTRIB_LIST omits them, which would leave Z2M unable
+ * to read the divisor and stuck at raw pulse-count units).
+ */
+ZB_ZCL_DECLARE_METERING_ATTRIB_LIST_EXT(
+	metering_attr_list,
+	&dev_ctx.metering_current_summation,
+	&dev_ctx.metering_status,
+	&dev_ctx.metering_unit_of_measure,
+	&dev_ctx.metering_summation_formatting,
+	&dev_ctx.metering_device_type,
+	&dev_ctx.metering_instantaneous_demand,
+	&dev_ctx.metering_demand_formatting,
+	&dev_ctx.metering_historical_consumption_formatting,
+	&dev_ctx.metering_multiplier,
+	&dev_ctx.metering_divisor);
+
+ZB_DECLARE_METER_CLUSTER_LIST(
 	app_clusters,
 	basic_attr_list,
-	identify_attr_list);
+	identify_attr_list,
+	metering_attr_list);
 
-ZB_DECLARE_RANGE_EXTENDER_EP(
+ZB_DECLARE_METER_EP(
 	app_ep,
 	APP_ENDPOINT,
 	app_clusters);
@@ -66,32 +140,17 @@ ZBOSS_DECLARE_DEVICE_CTX_1_EP(
 	app_ep);
 
 static bool joined;
+static bool endpoint_registered;
 
 /*
  * ZBOSS calls this from its main loop on every stack event.
  *
- * Pattern mirrored from ncs-zigbee R23's `light_switch` sample:
  * ALWAYS delegate to `zigbee_default_signal_handler` regardless of
- * signal type, then free the buffer. Our earlier "override
- * FIRST_START / STEERING failure to skip the default handler"
- * approach broke Z2M's ZDO interview — the default handler installs
- * ZDO response plumbing during FIRST_START, and skipping it leaves
- * node-descriptor / active-endpoint queries unanswered. Verified
- * 2026-07-23 by flashing ncs-zigbee's unmodified `light_switch`
- * sample to the same XIAO on the same Z2M — it interviews cleanly.
- *
- * Battery-model implication of this pattern: the default handler
- * auto-starts network steering on FIRST_START (one-time radio-on
- * cost at first boot ever — negligible over multi-year AAA life)
- * and auto-retries on STEERING failure at 1 s cadence (that IS a
- * battery drain if the coordinator is permanently absent). Once
- * we're past the interview-timing landmine we'll add a bounded-
- * retry-with-backoff on top rather than reverting to the earlier
- * "skip default handler" shortcut.
- *
- * The switch below is now just for logging + local `joined` state
- * tracking — no early returns, always fall through to the default
- * handler at the bottom.
+ * signal type, then free the buffer. See memory
+ * `project_r23_signal_handler_must_delegate.md` for why — skipping
+ * the default handler on FIRST_START breaks Z2M's ZDO interview
+ * silently. The switch below is just for logging + local `joined`
+ * state tracking; no early returns.
  */
 void zboss_signal_handler(zb_bufid_t bufid)
 {
@@ -115,7 +174,6 @@ void zboss_signal_handler(zb_bufid_t bufid)
 		break;
 	}
 
-	/* Standard R23 bookkeeping — do NOT short-circuit this. */
 	ZB_ERROR_CHECK(zigbee_default_signal_handler(bufid));
 	if (bufid) {
 		zb_buf_free(bufid);
@@ -123,14 +181,9 @@ void zboss_signal_handler(zb_bufid_t bufid)
 }
 
 /*
- * Identify callback. ncs-zigbee registers this via
- * ZB_AF_SET_IDENTIFY_NOTIFICATION_HANDLER so that the ZBOSS stack has
- * somewhere to call when a coordinator invokes Identify on our
- * endpoint (typical Z2M pairing flow). For now this is a stub — later
- * we'll drive the onboard LED for the requested identify duration.
- * Without a registered handler, ZBOSS asserts in
- * zb_zdo_dev_start_cont during commissioning (verified via SWD
- * breakpoint at zb_assert on 2026-07-22).
+ * Identify callback stub — see #4's notes for why a handler must be
+ * registered even if it does nothing (ZBOSS asserts otherwise). Wiring
+ * the red LED to the identify duration is a follow-up.
  */
 static void identify_cb(zb_bufid_t bufid)
 {
@@ -141,67 +194,133 @@ static void identify_cb(zb_bufid_t bufid)
 	}
 }
 
+static void metering_attrs_init(void)
+{
+	/* CurrentSummationDelivered — starts at 0; replaced by whatever
+	 * NVS persisted before we finish booting, then live-updated as
+	 * pulses come in.
+	 */
+	ZB_ASSIGN_UINT48(dev_ctx.metering_current_summation, 0, 0);
+
+	dev_ctx.metering_status = 0;                 /* no fault flags */
+	dev_ctx.metering_unit_of_measure = METERING_UNIT_KWH;
+	dev_ctx.metering_summation_formatting = METERING_SUMM_FORMATTING;
+	dev_ctx.metering_device_type = METERING_DEVICE_TYPE;
+
+	/* Instantaneous demand — the design doc doesn't publish a live
+	 * W/kW figure (HA derives it via the derivative helper). Leave
+	 * zero. Demand/historical formatting fields are ignored by Z2M
+	 * when the demand attribute isn't reporting, so 0 is safe.
+	 * ZB_INT24_FROM_INT32 clamps in-place and needs an l-value.
+	 */
+	{
+		zb_int32_t demand_init = 0;
+
+		ZB_INT24_FROM_INT32(dev_ctx.metering_instantaneous_demand,
+				    demand_init);
+	}
+	dev_ctx.metering_demand_formatting = 0;
+	dev_ctx.metering_historical_consumption_formatting = 0;
+
+	/* Multiplier / Divisor. Both are u24 in the wire representation
+	 * (packed structs on nRF, low+high halves). Use the ZBOSS
+	 * helper that converts a u32 into the packed u24 — writing the
+	 * halves by hand is easy to get wrong and the helper is free.
+	 */
+	zb_uint32_to_uint24(METERING_MULTIPLIER, &dev_ctx.metering_multiplier);
+	zb_uint32_to_uint24(METERING_DIVISOR, &dev_ctx.metering_divisor);
+}
+
 static void app_clusters_attr_init(void)
 {
-	/* Basic cluster (0x0000). ZCL_VERSION is a required attribute
-	 * declaring which revision of the Zigbee cluster library we
-	 * implement — the R23 stack sets this from the header.
-	 * Power source is battery — for a sleepy end device on AAA,
-	 * this drives Z2M's expected reporting behavior (poll vs.
-	 * report cadence). Bench-USB is still declared as battery
-	 * because that's the target power model.
+	/* Basic cluster (0x0000). ZCL_VERSION populated from header;
+	 * power source declared as battery — a sleepy ED on AAA
+	 * signals its polling model that way, which changes Z2M's
+	 * expected report cadence (poll- rather than push-heavy).
+	 * Bench-USB power is still declared as battery because that's
+	 * the target power model.
 	 */
 	dev_ctx.basic_attr.zcl_version = ZB_ZCL_VERSION;
+	dev_ctx.basic_attr.app_version = BASIC_APP_VERSION;
+	dev_ctx.basic_attr.stack_version = BASIC_STACK_VERSION;
+	dev_ctx.basic_attr.hw_version = BASIC_HW_VERSION;
 	dev_ctx.basic_attr.power_source = ZB_ZCL_BASIC_POWER_SOURCE_BATTERY;
+	dev_ctx.basic_attr.ph_env = ZB_ZCL_BASIC_ENV_UNSPECIFIED;
+
+	/* ZCL strings are length-prefixed (Pascal-style): first byte is
+	 * the length excluding the terminator. `ZB_ZCL_SET_STRING_VAL`
+	 * writes both the prefix and the payload; `ZB_ZCL_STRING_CONST_SIZE`
+	 * is the compile-time strlen minus trailing NUL.
+	 */
+	ZB_ZCL_SET_STRING_VAL(dev_ctx.basic_attr.mf_name,
+			      BASIC_MANUF_NAME,
+			      ZB_ZCL_STRING_CONST_SIZE(BASIC_MANUF_NAME));
+	ZB_ZCL_SET_STRING_VAL(dev_ctx.basic_attr.model_id,
+			      BASIC_MODEL_ID,
+			      ZB_ZCL_STRING_CONST_SIZE(BASIC_MODEL_ID));
+	ZB_ZCL_SET_STRING_VAL(dev_ctx.basic_attr.date_code,
+			      BASIC_DATE_CODE,
+			      ZB_ZCL_STRING_CONST_SIZE(BASIC_DATE_CODE));
+	ZB_ZCL_SET_STRING_VAL(dev_ctx.basic_attr.location_id,
+			      BASIC_LOCATION_DESC,
+			      ZB_ZCL_STRING_CONST_SIZE(BASIC_LOCATION_DESC));
+	ZB_ZCL_SET_STRING_VAL(dev_ctx.basic_attr.sw_ver,
+			      BASIC_SW_BUILD_ID,
+			      ZB_ZCL_STRING_CONST_SIZE(BASIC_SW_BUILD_ID));
 
 	/* Identify cluster (0x0003). Default identify time = 0 =
-	 * device is NOT currently identifying. Coordinators write
-	 * this to N seconds to make the device blink for N seconds.
+	 * device is NOT currently identifying.
 	 */
 	dev_ctx.identify_attr.identify_time =
 		ZB_ZCL_IDENTIFY_IDENTIFY_TIME_DEFAULT_VALUE;
+
+	metering_attrs_init();
 }
 
 int zigbee_app_init(void)
 {
 	/* Register the endpoint context BEFORE zigbee_enable(). Without
 	 * this, ZBOSS has no clusters to advertise during commissioning
-	 * and bdb_start_top_level_commissioning() asserts inside the
-	 * ZBOSS thread — we saw this as a `<err> zboss_osif: ZBOSS ...`
-	 * printed once + immediate SoC reset, on the very first button-
-	 * triggered join.
+	 * and bdb_start_top_level_commissioning() asserts — see #4's
+	 * notes for the exact failure signature.
 	 */
 	ZB_AF_REGISTER_DEVICE_CTX(&app_ctx);
 	app_clusters_attr_init();
+	endpoint_registered = true;
 
-	/* Register identify handler — MUST come after ctx registration
-	 * and BEFORE zigbee_enable(). See identify_cb() comment for why.
-	 */
 	ZB_AF_SET_IDENTIFY_NOTIFICATION_HANDLER(APP_ENDPOINT, identify_cb);
 
-	/* Sleepy End Device role. ZB_ZED is the compile-time role set
-	 * via CONFIG_ZIGBEE_ROLE_END_DEVICE in prj.conf; at runtime the
-	 * only thing left to do here is confirm the ZBOSS stack picks it
-	 * up correctly (checked via log during first join). The design
-	 * doc's multi-year AAA target depends on this being on.
+	/*
+	 * Sleepy-behavior is DISABLED for the USB-dev phase.
+	 *
+	 * `CONFIG_ZIGBEE_ROLE_END_DEVICE` (compile-time) keeps us in the
+	 * ZED role at the MAC layer. What we turn off here at runtime is
+	 * `zb_set_rx_on_when_idle(FALSE)` — the "radio dark between
+	 * polls" mode that unlocks µA-range sleep current on AAAs.
+	 *
+	 * Reason to disable it TODAY: Z2M's ZCL Read of Basic.
+	 * manufacturerName / .modelId during interview times out on a
+	 * sleepy ED because the default parent-poll cadence (~7.5 s) is
+	 * slower than Z2M's read deadline. The result is
+	 * `interview_state: FAILED — can not get active endpoints` on
+	 * a fresh join, and Z2M never auto-configures reporting on
+	 * CurrentSummationDelivered.
+	 *
+	 * Rx-on-when-idle=TRUE burns ~5 mA average — a non-starter for
+	 * the multi-year AAA target — but fine for the USB-dev phase
+	 * we're in (see project overview memory). Turning it back on
+	 * lands in #6/#7 alongside the LPCOMP pulse chain and real
+	 * power measurement; those change the wake model wholesale
+	 * so there's no point half-implementing sleep here.
 	 */
-	zigbee_configure_sleepy_behavior(true);
+	zigbee_configure_sleepy_behavior(false);
 
-	/* ncs-zigbee's zigbee_enable() returns void — it spawns the ZBOSS
-	 * thread and any hard failures are surfaced via zboss_signal_handler
-	 * rather than a return code. Nothing to check inline.
-	 */
 	zigbee_enable();
 	return 0;
 }
 
-/* Callbacks run inside ZBOSS's own thread. Calling
- * bdb_start_top_level_commissioning() from any other thread doesn't
- * work reliably: the ZBOSS scheduler is asleep most of the time under
- * sleepy-ED, and a direct call from an app thread queues the request
- * but doesn't wake the scheduler. `ZB_SCHEDULE_APP_CALLBACK` does
- * both — it schedules the callback on the ZBOSS thread AND signals
- * it to run, which pulls ZBOSS out of sleep.
+/* Callbacks that talk to ZBOSS API must run on the ZBOSS thread — see
+ * the equivalent comment in the join/reset flow.
  */
 static void start_steering_cb(zb_uint8_t param)
 {
@@ -221,11 +340,41 @@ static void factory_reset_cb(zb_uint8_t param)
 	zb_bdb_reset_via_local_action(0);
 }
 
+/*
+ * Trampoline that runs on the ZBOSS thread and does the actual
+ * `ZB_ZCL_SET_ATTRIBUTE` call. The publish API packs the pulse total
+ * into a scheduler-callback-sized u8 index via a shadow variable —
+ * `param` is only 8 bits so we can't pass the 48-bit summation
+ * through it directly.
+ */
+static uint64_t pending_summation_total;
+
+static void publish_summation_cb(zb_uint8_t param)
+{
+	ARG_UNUSED(param);
+
+	struct metering_u48 v = metering_scale_to_u48(pending_summation_total);
+	zb_uint48_t summation;
+
+	ZB_ASSIGN_UINT48(summation, v.high, v.low);
+
+	/* Persist into the attribute table AND mark for reporting.
+	 * `ZB_FALSE` on check_access means the write skips the ZCL
+	 * read-only access check — required because the summation
+	 * attribute is declared read-only (external writers must go
+	 * through the ZCL API, but on-device app code goes direct).
+	 */
+	ZB_ZCL_SET_ATTRIBUTE(
+		APP_ENDPOINT,
+		ZB_ZCL_CLUSTER_ID_METERING,
+		ZB_ZCL_CLUSTER_SERVER_ROLE,
+		ZB_ZCL_ATTR_METERING_CURRENT_SUMMATION_DELIVERED_ID,
+		(zb_uint8_t *)&summation,
+		ZB_FALSE);
+}
+
 void zigbee_app_start_join(void)
 {
-	/* Idempotent — if already joined or already steering, BDB
-	 * short-circuits inside the callback.
-	 */
 	LOG_INF("starting network steering");
 	ZB_SCHEDULE_APP_CALLBACK(start_steering_cb, 0);
 }
@@ -239,4 +388,25 @@ void zigbee_app_factory_reset(void)
 bool zigbee_app_is_joined(void)
 {
 	return joined;
+}
+
+void zigbee_app_publish_summation(uint64_t pulse_total)
+{
+	if (!endpoint_registered) {
+		/* zigbee_app_init() failed or hasn't run yet — nothing
+		 * to publish into. Silent no-op keeps main.c's sample
+		 * loop from having to gate its call site on Zigbee
+		 * bring-up state.
+		 */
+		return;
+	}
+
+	/* Hand off to the ZBOSS thread. `pending_summation_total` is
+	 * a single-writer/single-reader shadow, and back-to-back calls
+	 * will collapse into whichever value the ZBOSS thread reads
+	 * last — that's actually the behaviour we want (report the
+	 * freshest total, not a queue of stale ones).
+	 */
+	pending_summation_total = pulse_total;
+	ZB_SCHEDULE_APP_CALLBACK(publish_summation_cb, 0);
 }
