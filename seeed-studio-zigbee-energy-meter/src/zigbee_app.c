@@ -70,16 +70,28 @@ static bool joined;
 /*
  * ZBOSS calls this from its main loop on every stack event.
  *
- * Design intent: sleepy end device with user-driven commissioning.
- * On first boot we do NOT auto-steer — the battery-life target
- * demands the CPU sleep between explicit user actions (button
- * press → join, or wake-timer → send-report-then-sleep once
- * joined). ncs-zigbee's default handler auto-starts steering on
- * FIRST_START and auto-retries on STEERING failure, both of which
- * defeat the battery model, so we override those signals and free
- * the buffer ourselves. For everything else (join success, reboot
- * of an already-commissioned device, LEAVE, etc.) we delegate to
- * the default handler for the standard bookkeeping.
+ * Pattern mirrored from ncs-zigbee R23's `light_switch` sample:
+ * ALWAYS delegate to `zigbee_default_signal_handler` regardless of
+ * signal type, then free the buffer. Our earlier "override
+ * FIRST_START / STEERING failure to skip the default handler"
+ * approach broke Z2M's ZDO interview — the default handler installs
+ * ZDO response plumbing during FIRST_START, and skipping it leaves
+ * node-descriptor / active-endpoint queries unanswered. Verified
+ * 2026-07-23 by flashing ncs-zigbee's unmodified `light_switch`
+ * sample to the same XIAO on the same Z2M — it interviews cleanly.
+ *
+ * Battery-model implication of this pattern: the default handler
+ * auto-starts network steering on FIRST_START (one-time radio-on
+ * cost at first boot ever — negligible over multi-year AAA life)
+ * and auto-retries on STEERING failure at 1 s cadence (that IS a
+ * battery drain if the coordinator is permanently absent). Once
+ * we're past the interview-timing landmine we'll add a bounded-
+ * retry-with-backoff on top rather than reverting to the earlier
+ * "skip default handler" shortcut.
+ *
+ * The switch below is now just for logging + local `joined` state
+ * tracking — no early returns, always fall through to the default
+ * handler at the bottom.
  */
 void zboss_signal_handler(zb_bufid_t bufid)
 {
@@ -88,37 +100,14 @@ void zboss_signal_handler(zb_bufid_t bufid)
 	zb_ret_t status = ZB_GET_APP_SIGNAL_STATUS(bufid);
 
 	switch (sig) {
-	case ZB_BDB_SIGNAL_DEVICE_FIRST_START:
-		/* Cold boot, never joined a network. Do nothing —
-		 * ZBOSS will sleep between polls. Short-press the
-		 * button to steer.
-		 */
-		LOG_INF("first boot — press button to join a network");
-		joined = false;
-		zb_buf_free(bufid);
-		return;
-
 	case ZB_BDB_SIGNAL_STEERING:
 		joined = (status == RET_OK);
 		LOG_INF("network steering: %s (status=%d)",
 			joined ? "joined" : "failed", status);
-		if (!joined) {
-			/* Do NOT auto-retry — default handler would
-			 * kick off a rejoin loop that keeps the radio
-			 * awake and eventually resets ZBOSS. Sit
-			 * quietly until the user presses the button
-			 * again.
-			 */
-			zb_buf_free(bufid);
-			return;
-		}
 		break;
 
 	case ZB_ZDO_SIGNAL_LEAVE:
-		/* Kicked from network (or factory-reset propagated).
-		 * Mark unjoined and let the default handler tidy up.
-		 */
-		LOG_WRN("left network — waiting for button to re-join");
+		LOG_WRN("left network");
 		joined = false;
 		break;
 
@@ -126,12 +115,11 @@ void zboss_signal_handler(zb_bufid_t bufid)
 		break;
 	}
 
-	/* Everything we haven't short-circuited above (REBOOT of an
-	 * already-commissioned device, STEERING success, LEAVE, ...)
-	 * goes through ncs-zigbee's default handler, which does the
-	 * standard NVRAM/network-key bookkeeping and frees the buffer.
-	 */
-	zigbee_default_signal_handler(bufid);
+	/* Standard R23 bookkeeping — do NOT short-circuit this. */
+	ZB_ERROR_CHECK(zigbee_default_signal_handler(bufid));
+	if (bufid) {
+		zb_buf_free(bufid);
+	}
 }
 
 /*
@@ -194,18 +182,10 @@ int zigbee_app_init(void)
 	/* Sleepy End Device role. ZB_ZED is the compile-time role set
 	 * via CONFIG_ZIGBEE_ROLE_END_DEVICE in prj.conf; at runtime the
 	 * only thing left to do here is confirm the ZBOSS stack picks it
-	 * up correctly (checked via log during first join).
-	 *
-	 * *** TEMPORARILY DISABLED for interview debugging ***
-	 * With sleepy=true, Z2M reports "failed to interview because
-	 * can not get node descriptor" — parent-poll latency exceeds
-	 * Z2M's ZDO timeout. Running as an always-awake ED for bench
-	 * verification; will re-enable + tune poll intervals once
-	 * interview works and we can validate incremental changes.
-	 * Non-sleepy ED still draws far less than a Router — the CPU
-	 * just doesn't drop to SYSTEM_ON deep sleep between events.
+	 * up correctly (checked via log during first join). The design
+	 * doc's multi-year AAA target depends on this being on.
 	 */
-	// zigbee_configure_sleepy_behavior(true);
+	zigbee_configure_sleepy_behavior(true);
 
 	/* ncs-zigbee's zigbee_enable() returns void — it spawns the ZBOSS
 	 * thread and any hard failures are surfaced via zboss_signal_handler
