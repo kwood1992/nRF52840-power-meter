@@ -2,7 +2,7 @@ CC      ?= cc
 CFLAGS  ?= -std=c11 -Wall -Wextra -Wpedantic -Werror -O0 -g -I../src
 BUILD   := build
 
-TESTS := test_pulse_accumulator test_pulse_edge_detector test_persist_policy
+TESTS := test_pulse_accumulator test_pulse_edge_detector test_persist_policy test_button_press_classifier
 
 .PHONY: all test clean
 all: test
@@ -19,6 +19,9 @@ $(BUILD)/test_pulse_edge_detector: test_pulse_edge_detector.c ../src/pulse_edge_
 
 $(BUILD)/test_persist_policy: test_persist_policy.c ../src/persist_policy.c ../src/persist_policy.h | $(BUILD)
 	$(CC) $(CFLAGS) -o $@ test_persist_policy.c ../src/persist_policy.c
+
+$(BUILD)/test_button_press_classifier: test_button_press_classifier.c ../src/button_press_classifier.c ../src/button_press_classifier.h | $(BUILD)
+	$(CC) $(CFLAGS) -o $@ test_button_press_classifier.c ../src/button_press_classifier.c
 
 $(BUILD):
 	@mkdir -p $(BUILD)

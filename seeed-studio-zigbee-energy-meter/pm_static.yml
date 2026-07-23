@@ -1,0 +1,66 @@
+# Static Partition Manager layout for XIAO nRF52840 + Adafruit UF2
+# bootloader + ncs-zigbee (R23).
+#
+# CRITICAL: the Adafruit UF2 bootloader lives in TWO reserved regions
+# that must never be written to:
+#   0x00000 - 0x27000  MBR + S140 SoftDevice slot + reserved
+#   0xf4000 - 0x100000 Adafruit UF2 bootloader itself (48 KB at top)
+# Overwriting either bricks double-tap-reset recovery — the board looks
+# fully dead (no LED, no USB) and can only be recovered via SWD.
+# See memory `project_xiao_flash_reserved_regions.md`.
+#
+# Why this exists: CONFIG_ZIGBEE_ADD_ON auto-selects
+# CONFIG_PARTITION_MANAGER_ENABLED (ZBOSS needs zboss_nvram +
+# zboss_product_config). Once PM is on it ignores the DT code partition
+# and defaults the app to 0x0. This static layout explicitly claims
+# every flash byte so PM can only place the app in the one gap we
+# leave for it.
+#
+# Layout (fills 0x100000 exactly, one gap for the dynamic app):
+#   0x00000 - 0x27000   adafruit_uf2_bootloader_low  (156 KB, RESERVED)
+#   0x27000 - 0xe3000   app                          (752 KB — DYNAMIC gap,
+#                                                     PM places the app here)
+#   0xe3000 - 0xeb000   zboss_nvram                  (32 KB — CONFIG_PM_
+#                                                     PARTITION_SIZE_ZBOSS_
+#                                                     NVRAM=0x8000)
+#   0xeb000 - 0xec000   zboss_product_config         (4 KB — CONFIG_PM_
+#                                                     PARTITION_SIZE_ZBOSS_
+#                                                     PRODUCT_CONFIG=0x1000)
+#   0xec000 - 0xf4000   nvs_storage                  (32 KB — accumulator
+#                                                     NVS from #10. Address
+#                                                     matches DT
+#                                                     storage_partition so
+#                                                     the layout is
+#                                                     symmetrical with the
+#                                                     non-PM build on main)
+#   0xf4000 - 0x100000  adafruit_uf2_bootloader_high (48 KB, RESERVED)
+
+adafruit_uf2_bootloader_low:
+  address: 0x0
+  end_address: 0x27000
+  region: flash_primary
+  size: 0x27000
+
+zboss_nvram:
+  address: 0xe3000
+  end_address: 0xeb000
+  region: flash_primary
+  size: 0x8000
+
+zboss_product_config:
+  address: 0xeb000
+  end_address: 0xec000
+  region: flash_primary
+  size: 0x1000
+
+nvs_storage:
+  address: 0xec000
+  end_address: 0xf4000
+  region: flash_primary
+  size: 0x8000
+
+adafruit_uf2_bootloader_high:
+  address: 0xf4000
+  end_address: 0x100000
+  region: flash_primary
+  size: 0xc000

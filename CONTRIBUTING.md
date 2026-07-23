@@ -224,6 +224,17 @@ Flash with UF2 as above, or `nrfutil device program --firmware build/zephyr/zeph
 
 ---
 
+## One-command flash via SWD jig (optional, but great)
+
+For rapid firmware iteration, [`docs/swd-recovery-jig.md`](docs/swd-recovery-jig.md)
+documents a Raspberry Pi + 3D-printed spring-pin jig setup that reduces
+"double-tap the reset button, wait for drive, drag the UF2" to a single
+`./tools/flash.sh` command. The same setup recovers a soft-bricked XIAO
+(firmware overwrote the Adafruit UF2 bootloader) via SWD. Skip this
+section if you're happy with the manual drag flow.
+
+---
+
 ## Running the host tests
 
 The pure-logic modules build and run with any C compiler — no Zephyr toolchain

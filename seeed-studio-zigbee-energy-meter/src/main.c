@@ -9,10 +9,12 @@
 #include <zephyr/sys/atomic.h>
 #include <zephyr/usb/usb_device.h>
 
+#include "button_press_classifier.h"
 #include "nvs_store.h"
 #include "persist_policy.h"
 #include "pulse_accumulator.h"
 #include "pulse_edge_detector.h"
+#include "zigbee_app.h"
 
 /* Voltage threshold at which the phototransistor is considered "lit" for a
  * meter-LED pulse. Adjust after seeing dark vs. bright readings on the bench.
@@ -29,12 +31,16 @@
  *   * every 100 counted pulses since the last save (safety net that bounds
  *     data loss under a burst — 100 pulses at the default 1000 imp/kWh
  *     is 0.1 kWh, a tolerable worst case).
- * Rationale for the wall-clock number: 12 writes/hour × 24 = 288/day.
- * With 8 sectors on storage_partition rotating and ~10k cycles/sector
- * that's north of 7 years of headroom.
  */
 #define PERSIST_INTERVAL_MS      (5U * 60U * 1000U)
 #define PERSIST_MAX_PULSE_DELTA  100ULL
+
+/* Button press bands. Anything in the 1–3 s gap is ignored to avoid
+ * accidental factory-resets when the user meant "short press". See
+ * docs/working/2026-07-22-zigbee-join.md for why the gap exists.
+ */
+#define BUTTON_SHORT_MAX_MS    1000U
+#define BUTTON_LONG_MIN_MS     3000U
 
 LOG_MODULE_REGISTER(main, LOG_LEVEL_INF);
 
@@ -49,11 +55,11 @@ static const struct gpio_dt_spec led = GPIO_DT_SPEC_GET(DT_ALIAS(led0), gpios);
 static const struct adc_dt_spec phototransistor_adc =
 	ADC_DT_SPEC_GET(DT_PATH(zephyr_user));
 
-/* User button on XIAO D6 (P1.11), active-low with internal pull-up. This
- * is the long-term Zigbee join / factory-reset button; short-term each
- * press fires a falling-edge IRQ that increments a software pulse counter,
- * which the sample loop feeds into pulse_accumulator_update() — the same
- * way LPCOMP+PPI+TIMER will drive it in the final battery build.
+/* User button on XIAO D6 (P1.11), active-low with internal pull-up.
+ * Both a Zigbee join / factory-reset trigger and (temporarily, until
+ * issue #7 lands the LPCOMP hardware chain) a bench pulse source —
+ * each press-start bumps bench_pulse_count so the sample loop still
+ * sees pulses on the bench without a real meter-LED wired in.
  */
 static const struct gpio_dt_spec user_button = GPIO_DT_SPEC_GET(DT_ALIAS(sw0), gpios);
 
@@ -61,21 +67,54 @@ static const struct gpio_dt_spec user_button = GPIO_DT_SPEC_GET(DT_ALIAS(sw0), g
 
 static atomic_t bench_pulse_count = ATOMIC_INIT(0);
 static int64_t bench_last_edge_ms;
+static int64_t button_press_start_ms;
 static struct gpio_callback user_button_cb;
+static struct button_press_classifier button_classifier;
 
-static void user_button_pressed(const struct device *dev,
-				 struct gpio_callback *cb,
-				 uint32_t pins)
+static K_SEM_DEFINE(button_release_sem, 0, 1);
+static atomic_t button_press_duration_ms = ATOMIC_INIT(0);
+
+static void user_button_isr(const struct device *dev,
+			    struct gpio_callback *cb,
+			    uint32_t pins)
 {
 	ARG_UNUSED(dev);
 	ARG_UNUSED(cb);
 	ARG_UNUSED(pins);
 
 	int64_t now = k_uptime_get();
+	int value = gpio_pin_get_dt(&user_button);
 
-	if (now - bench_last_edge_ms >= BENCH_DEBOUNCE_MS) {
-		atomic_inc(&bench_pulse_count);
-		bench_last_edge_ms = now;
+	if (value == 1) {
+		/* Active — falling edge on the pin, i.e. press start.
+		 * Also increment the bench pulse count (removed by #7
+		 * when the LPCOMP hardware chain takes over the pulse
+		 * source).
+		 */
+		if (now - bench_last_edge_ms >= BENCH_DEBOUNCE_MS) {
+			atomic_inc(&bench_pulse_count);
+			bench_last_edge_ms = now;
+		}
+		button_press_start_ms = now;
+	} else {
+		/* Rising edge — press release. Publish the duration
+		 * for the dispatch thread to classify. Keeping ZBOSS
+		 * calls off the IRQ path.
+		 */
+		int64_t duration = now - button_press_start_ms;
+
+		if (duration < 0) {
+			duration = 0;
+		}
+		/* atomic_val_t is signed long — clamp to INT32_MAX to
+		 * avoid a sign flip in the pathological "held forever"
+		 * case. 24 days is well past any real button hold.
+		 */
+		if (duration > INT32_MAX) {
+			duration = INT32_MAX;
+		}
+		atomic_set(&button_press_duration_ms, (atomic_val_t)duration);
+		k_sem_give(&button_release_sem);
 	}
 }
 
@@ -142,14 +181,47 @@ static int user_button_setup(void)
 		return err;
 	}
 
-	err = gpio_pin_interrupt_configure_dt(&user_button, GPIO_INT_EDGE_TO_ACTIVE);
+	err = gpio_pin_interrupt_configure_dt(&user_button, GPIO_INT_EDGE_BOTH);
 	if (err) {
 		return err;
 	}
 
-	gpio_init_callback(&user_button_cb, user_button_pressed, BIT(user_button.pin));
+	gpio_init_callback(&user_button_cb, user_button_isr, BIT(user_button.pin));
 	return gpio_add_callback(user_button.port, &user_button_cb);
 }
+
+static void button_dispatch_thread(void *a, void *b, void *c)
+{
+	ARG_UNUSED(a);
+	ARG_UNUSED(b);
+	ARG_UNUSED(c);
+
+	while (1) {
+		k_sem_take(&button_release_sem, K_FOREVER);
+
+		uint32_t duration = (uint32_t)atomic_get(&button_press_duration_ms);
+		enum button_press_kind kind =
+			button_press_classifier_classify(&button_classifier, duration);
+
+		switch (kind) {
+		case BUTTON_PRESS_SHORT:
+			LOG_INF("button short-press (%u ms) — joining", duration);
+			zigbee_app_start_join();
+			break;
+		case BUTTON_PRESS_LONG:
+			LOG_WRN("button long-press (%u ms) — factory reset", duration);
+			zigbee_app_factory_reset();
+			break;
+		case BUTTON_PRESS_NEITHER:
+			LOG_INF("button press (%u ms) ignored — outside short/long band",
+				duration);
+			break;
+		}
+	}
+}
+
+K_THREAD_DEFINE(button_dispatch_tid, 1024, button_dispatch_thread, NULL, NULL, NULL,
+		K_LOWEST_APPLICATION_THREAD_PRIO, 0, 0);
 
 int main(void)
 {
@@ -198,7 +270,18 @@ int main(void)
 	LOG_INF("XIAO Zigbee Energy Meter booted");
 	LOG_INF("sampling phototransistor on A0 (AIN0) at 10 Hz, threshold=%d mV",
 		PHOTOTRANSISTOR_THRESHOLD_MV);
-	LOG_INF("user button on D6 (P1.11) — press to increment accumulator");
+	LOG_INF("user button on D6 (P1.11) — short-press (<1 s) join, long-press (>=3 s) factory reset");
+
+	button_press_classifier_init(&button_classifier,
+				     BUTTON_SHORT_MAX_MS,
+				     BUTTON_LONG_MIN_MS);
+
+	int zb_err = zigbee_app_init();
+
+	if (zb_err) {
+		LOG_ERR("zigbee_app_init failed: %d — continuing without Zigbee",
+			zb_err);
+	}
 
 	struct pulse_accumulator acc;
 	struct pulse_edge_detector detector;
@@ -211,12 +294,10 @@ int main(void)
 	uint64_t last_saved_total = 0;
 	/* Backdate last_saved_ms by the full persist interval so the *first*
 	 * time the total changes after boot triggers an immediate write via
-	 * the wall-clock arm of persist_policy_should_write(). Rationale:
-	 * without this, a bench cycle of "press N<100 times, reboot within
-	 * 5 min" never fires either safety net and NVS stays empty — a
-	 * legitimate flashed-and-verified test looks identical to a broken
-	 * NVS mount. One extra write per boot in the field is negligible
-	 * against the 288/day steady-state budget.
+	 * the wall-clock arm of persist_policy_should_write(). Without this,
+	 * a bench cycle of "press N<100 times, reboot within 5 min" never
+	 * fires either safety net and NVS stays empty — indistinguishable
+	 * from a broken mount from the serial log.
 	 */
 	int64_t last_saved_ms = k_uptime_get() - (int64_t)PERSIST_INTERVAL_MS;
 
@@ -248,7 +329,9 @@ int main(void)
 		int32_t mv = 0;
 		int err = read_phototransistor_mv(&mv);
 
-		if (!err && pulse_edge_detector_sample(&detector, mv)) {
+		bool edge = !err && pulse_edge_detector_sample(&detector, mv);
+
+		if (edge) {
 			atomic_inc(&bench_pulse_count);
 		}
 
@@ -258,11 +341,16 @@ int main(void)
 
 		if (err) {
 			LOG_ERR("adc read failed: %d", err);
-		} else {
-			LOG_INF("sample=%u voltage_mv=%d accumulator_total=%llu",
-				sample++, mv,
+		} else if (edge) {
+			/* Only log when a real pulse is counted. Per-sample
+			 * logs at 10 Hz were flooding the serial and drowning
+			 * out Zigbee events during commissioning.
+			 */
+			LOG_INF("pulse counted: voltage_mv=%d accumulator_total=%llu",
+				mv,
 				(unsigned long long)pulse_accumulator_total(&acc));
 		}
+		sample++;
 
 		uint64_t total = pulse_accumulator_total(&acc);
 		int64_t now = k_uptime_get();
