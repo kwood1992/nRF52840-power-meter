@@ -401,6 +401,13 @@ static void send_explicit_summation_report(void)
 		return;
 	}
 
+	LOG_INF("reporting slot: min_interval=%us max_interval=%us "
+		"reportable_change=0x%04x%08x",
+		rep_info->u.send_info.min_interval,
+		rep_info->u.send_info.max_interval,
+		rep_info->u.send_info.delta.u48.high,
+		rep_info->u.send_info.delta.u48.low);
+
 	zb_bufid_t bufid = zb_buf_get_out();
 
 	if (bufid == 0) {
