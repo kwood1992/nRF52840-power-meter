@@ -20,13 +20,20 @@
 #   6. Disable permit_join, print outcome, exit
 #
 # Requires (all documented in docs/swd-recovery-jig.md):
-#   - Pi SWD flash rig (tools/flash.sh)
+#   - Pi SWD flash rig (tools/flash.sh) OR serial-DFU fallback (tools/flash-serial.sh)
 #   - Pi wired to XIAO button (GPIO 17 -> D6)
 #   - ~/z2m-cli on the Pi with valid MQTT creds in ~/.mosquitto-xiao-creds
 #
 # Usage:
 #   ./tools/test-join.sh                  # test the standard build
 #   ./tools/test-join.sh path/to/other.uf2
+#
+# Flash strategy: tries tools/flash.sh (MSC drop) first, since it's the
+# fastest and doesn't need adafruit-nrfutil. Falls back to
+# tools/flash-serial.sh if the mass-storage endpoint doesn't advertise
+# (a recurring failure mode — see memory
+# reference_serial_dfu_flash_fallback). flash-serial packages the .hex,
+# not the .uf2, so we hand it the sibling .hex for the same build.
 
 set -eu
 
@@ -51,8 +58,25 @@ log "target device: $XIAO_IEEE"
 log "UF2:           $UF2"
 
 # -- 1. flash --
-log "1/5 flashing..."
-"$REPO_ROOT/tools/flash.sh" "$UF2" >/dev/null
+# Try flash.sh (MSC drop) first. If it fails (typically because
+# /Volumes/XIAO-SENSE doesn't mount), fall back to flash-serial.sh
+# with the sibling .hex.
+log "1/5 flashing (trying flash.sh first)..."
+if "$REPO_ROOT/tools/flash.sh" "$UF2" >/dev/null 2>&1; then
+    log "     flash.sh succeeded"
+else
+    HEX="${UF2%.uf2}.hex"
+    if [ ! -f "$HEX" ]; then
+        log "error: flash.sh failed AND no sibling .hex found for flash-serial fallback (looked for $HEX)"
+        exit 3
+    fi
+    log "     flash.sh failed — falling back to flash-serial.sh with $(basename "$HEX")..."
+    if ! "$REPO_ROOT/tools/flash-serial.sh" "$HEX" >/dev/null 2>&1; then
+        log "error: both flash paths failed"
+        exit 3
+    fi
+    log "     flash-serial.sh succeeded"
+fi
 
 # -- 2. wait for boot --
 log "2/5 waiting 8 s for boot..."

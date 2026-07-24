@@ -2,66 +2,65 @@
  * Project overlay — always applied regardless of board target. Forced into
  * the DTS pipeline via EXTRA_DTC_OVERLAY_FILE in CMakeLists.txt.
  *
- * Adds two things:
- *  - An ADC channel on AIN0 (XIAO A0 / D0 / P0.02) for the phototransistor,
- *    exposed through zephyr,user for main.c.
- *  - A bench pulse-source button on P0.03 (XIAO A1 / D1). Wire a momentary
- *    button between D1 and GND — internal pull-up + active-low means each
- *    press pulls the pin LOW and fires a falling-edge interrupt. Same
- *    software path we'll eventually feed with LPCOMP+PPI+TIMER.
+ * Wires the hardware pulse-counting chain that runs during System-ON sleep
+ * (see src/hw_pulse_counter.c and issue #7):
+ *
+ *   - `comp` re-configured as an LPCOMP (Low-Power COMParator) with the
+ *     phototransistor on AIN0 (P0.02 = XIAO A0) as its input and VDD*3/8
+ *     (~1.24 V @ 3.3 V VDD, 1.125 V @ 3.0 V VDD) as its reference. HYST is
+ *     enabled to reject jitter near the threshold with no CPU wake — see
+ *     hw_pulse_counter.c for the noise-filter reasoning.
+ *   - `timer2` brought up so hw_pulse_counter can drive it in counter mode
+ *     via nrfx. (TIMER0 is the radio driver's; TIMER1 is the 802.15.4
+ *     driver's — enabling either fails Kconfig or races the stack. TIMER2
+ *     is the lowest-numbered free instance.)
+ *   - `gpiote` brought up so the bench D7 falling-edge inject-path
+ *     (Pi → xiao-pulse.sh) can be routed to the same TIMER via PPI. Zephyr's
+ *     GPIO driver on nRF also uses this instance, which is fine — the nrfx
+ *     GPIOTE allocator coordinates channel ownership between the two.
+ *
+ * Retained:
+ *   - User button on XIAO D6 (P1.11), still driven by Zephyr GPIO for
+ *     Zigbee join / factory-reset. Bench rig: Pi BCM17 → D6.
+ *
+ * Removed (relative to pre-#7):
+ *   - The `zephyr,user` ADC channel + `&adc` block — the 10 Hz SAADC sample
+ *     loop is gone; battery voltage sensing (issue #8) will re-add SAADC on
+ *     a different channel when that lands.
+ *   - The `sw1` / `pulse_input` gpio-keys entry — D7 is no longer a Zephyr
+ *     GPIO consumer; hw_pulse_counter drives it directly through nrfx
+ *     GPIOTE. Pin assignment (P1.12) is documented in that C file.
  */
 
 #include <zephyr/dt-bindings/gpio/gpio.h>
 
 / {
-	zephyr,user {
-		io-channels = <&adc 0>;
-	};
-
 	buttons {
 		compatible = "gpio-keys";
 
-		/*
-		 * User button on XIAO D6 (P1.11). Short-press joins /
-		 * rejoins the Zigbee network; long-press factory-resets.
-		 * Bench rig: Pi BCM GPIO 17 → D6 emulates presses over SSH
-		 * (see docs/swd-recovery-jig.md).
-		 */
 		user_button: user_button {
 			gpios = <&gpio1 11 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
 			label = "User button (XIAO D6 = P1.11)";
-		};
-
-		/*
-		 * Dedicated bench pulse-simulator input on XIAO D7 (P1.12).
-		 * Each falling edge bumps bench_pulse_count in main.c so
-		 * pulses can be injected without doubling as a D6 press
-		 * (which would spam the join callback). Bench rig: Pi BCM
-		 * GPIO 27 → D7. Removed once #7 lands the LPCOMP hardware
-		 * chain and the sample loop's software counter goes away.
-		 */
-		pulse_input: pulse_input {
-			gpios = <&gpio1 12 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
-			label = "Bench pulse input (XIAO D7 = P1.12)";
 		};
 	};
 
 	aliases {
 		sw0 = &user_button;
-		sw1 = &pulse_input;
 	};
 };
 
-&adc {
-	#address-cells = <1>;
-	#size-cells = <0>;
+&comp {
+	status = "okay";
+	compatible = "nordic,nrf-lpcomp";
+	psel = "AIN0";
+	refsel = "VDD_3_8";
+	enable-hyst;
+};
 
-	channel@0 {
-		reg = <0>;
-		zephyr,gain = "ADC_GAIN_1_6";
-		zephyr,reference = "ADC_REF_INTERNAL";
-		zephyr,acquisition-time = <ADC_ACQ_TIME_DEFAULT>;
-		zephyr,input-positive = <NRF_SAADC_AIN0>;
-		zephyr,resolution = <12>;
-	};
+&timer2 {
+	status = "okay";
+};
+
+&gpiote {
+	status = "okay";
 };

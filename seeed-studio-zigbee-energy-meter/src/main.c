@@ -1,7 +1,6 @@
 #include <errno.h>
 
 #include <zephyr/device.h>
-#include <zephyr/drivers/adc.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/drivers/uart.h>
 #include <zephyr/kernel.h>
@@ -10,20 +9,12 @@
 #include <zephyr/usb/usb_device.h>
 
 #include "button_press_classifier.h"
+#include "hw_pulse_counter.h"
 #include "nvs_store.h"
 #include "persist_policy.h"
 #include "pulse_accumulator.h"
-#include "pulse_edge_detector.h"
 #include "report_gate.h"
 #include "zigbee_app.h"
-
-/* Voltage threshold at which the phototransistor is considered "lit" for a
- * meter-LED pulse. Adjust after seeing dark vs. bright readings on the bench.
- * Typical dark on the TEPT4400 with a 47k load reads a few hundred mV; a
- * torch/red LED at close range easily rails past 2 V. 1000 mV is a starting
- * midpoint.
- */
-#define PHOTOTRANSISTOR_THRESHOLD_MV 1000
 
 /* Persistence policy: write the accumulator total to NVS on whichever of
  * these fires first —
@@ -39,7 +30,7 @@
 /* Zigbee Metering-cluster report cadence. Matches the design doc's
  * 5-min target and is the cadence Home Assistant's Energy Dashboard
  * expects for a "sum of energy over 5 min" datapoint. On a proper
- * low-power build (issue #6/#7) this k_work_delayable becomes the RTC
+ * low-power build (issue #8) this k_work_delayable becomes the RTC
  * wake source; today's non-suspending build fires the work at wall
  * clock cadence, which is functionally identical for Z2M's purposes.
  */
@@ -76,6 +67,18 @@
 #define BOOT_ERASE_BLINK_COUNT   4
 #define BOOT_ERASE_BLINK_MS      150
 
+/* Wake cadence for the sample / persist / heartbeat loop. Pulse counting
+ * is now hardware (LPCOMP + PPI + TIMER2) so this loop no longer needs
+ * to be a Nyquist-margin oversampler of the phototransistor waveform —
+ * it just needs to service the persist policy and blink the LED. 200 ms
+ * keeps the LED heartbeat visible (~1 Hz with a toggle every 5 wakes)
+ * and bounds "how long a fresh pulse waits before Z2M sees it" to well
+ * under a second. Cadence tightens further in #8 when the loop becomes
+ * an RTC-driven wake instead of a k_sleep.
+ */
+#define SAMPLE_LOOP_INTERVAL_MS   200U
+#define HEARTBEAT_TOGGLE_EVERY    5U
+
 LOG_MODULE_REGISTER(main, LOG_LEVEL_INF);
 
 /* Onboard red LED (P0.26, active-low) used as a boot indicator and
@@ -83,32 +86,15 @@ LOG_MODULE_REGISTER(main, LOG_LEVEL_INF);
  */
 static const struct gpio_dt_spec led = GPIO_DT_SPEC_GET(DT_ALIAS(led0), gpios);
 
-/* Phototransistor sampled on AIN0 = XIAO pin A0 / D0 / P0.02.
- * Wiring: thick leg -> 3V3, thin leg -> A0 and -> 47k -> GND.
- */
-static const struct adc_dt_spec phototransistor_adc =
-	ADC_DT_SPEC_GET(DT_PATH(zephyr_user));
-
 /* User button on XIAO D6 (P1.11), active-low with internal pull-up.
  * Zigbee join (short-press) / factory-reset (long-press) only. Pulse
- * counting moved off this pin in #16 onto D7 (see pulse_input below) so
- * the bench rig can inject pulses without triggering the join callback
- * on every simulated pulse.
+ * counting lives entirely in hw_pulse_counter.c now — this pin has no
+ * involvement in the counter path.
  */
 static const struct gpio_dt_spec user_button = GPIO_DT_SPEC_GET(DT_ALIAS(sw0), gpios);
 
-/* Dedicated bench pulse-simulator input on XIAO D7 (P1.12), active-low
- * with internal pull-up. Every falling edge bumps bench_pulse_count.
- * No debounce, no ZBOSS-touching side effects — Pi's ~/xiao-pulse.sh
- * generates clean pulses (~250 ms LOW), so on-MCU debounce would
- * suppress legitimate injections. Retired by #7's LPCOMP chain.
- */
-static const struct gpio_dt_spec pulse_input = GPIO_DT_SPEC_GET(DT_ALIAS(sw1), gpios);
-
-static atomic_t bench_pulse_count = ATOMIC_INIT(0);
 static int64_t button_press_start_ms;
 static struct gpio_callback user_button_cb;
-static struct gpio_callback pulse_input_cb;
 static struct button_press_classifier button_classifier;
 
 static K_SEM_DEFINE(button_release_sem, 0, 1);
@@ -150,17 +136,6 @@ static void user_button_isr(const struct device *dev,
 	}
 }
 
-static void pulse_input_isr(const struct device *dev,
-			    struct gpio_callback *cb,
-			    uint32_t pins)
-{
-	ARG_UNUSED(dev);
-	ARG_UNUSED(cb);
-	ARG_UNUSED(pins);
-
-	atomic_inc(&bench_pulse_count);
-}
-
 static void blink(int times, int on_ms, int off_ms)
 {
 	for (int i = 0; i < times; i++) {
@@ -181,35 +156,6 @@ static void wait_for_host_dtr_or_timeout(const struct device *cdc, int timeout_m
 		k_sleep(K_MSEC(100));
 		elapsed += 100;
 	}
-}
-
-static int read_phototransistor_mv(int32_t *out_mv)
-{
-	int16_t raw = 0;
-	struct adc_sequence seq = {
-		.buffer = &raw,
-		.buffer_size = sizeof(raw),
-	};
-	int err = adc_sequence_init_dt(&phototransistor_adc, &seq);
-
-	if (err) {
-		return err;
-	}
-
-	err = adc_read_dt(&phototransistor_adc, &seq);
-	if (err) {
-		return err;
-	}
-
-	int32_t mv = raw;
-
-	err = adc_raw_to_millivolts_dt(&phototransistor_adc, &mv);
-	if (err) {
-		return err;
-	}
-
-	*out_mv = mv;
-	return 0;
 }
 
 /* Split from user_button_arm_irq() so main() can poll sw0 for the
@@ -252,27 +198,6 @@ static bool boot_button_held(uint32_t threshold_ms)
 		elapsed += BOOT_ERASE_POLL_MS;
 	}
 	return true;
-}
-
-static int pulse_input_setup(void)
-{
-	if (!device_is_ready(pulse_input.port)) {
-		return -ENODEV;
-	}
-
-	int err = gpio_pin_configure_dt(&pulse_input, GPIO_INPUT);
-
-	if (err) {
-		return err;
-	}
-
-	err = gpio_pin_interrupt_configure_dt(&pulse_input, GPIO_INT_EDGE_TO_ACTIVE);
-	if (err) {
-		return err;
-	}
-
-	gpio_init_callback(&pulse_input_cb, pulse_input_isr, BIT(pulse_input.pin));
-	return gpio_add_callback(pulse_input.port, &pulse_input_cb);
 }
 
 static void button_dispatch_thread(void *a, void *b, void *c)
@@ -375,22 +300,19 @@ int main(void)
 		}
 	}
 
-	if (!adc_is_ready_dt(&phototransistor_adc) ||
-	    adc_channel_setup_dt(&phototransistor_adc)) {
-		while (1) {
-			blink(1, 250, 250);
-		}
-	}
-
 	if (user_button_configure()) {
 		while (1) {
 			blink(1, 500, 500);
 		}
 	}
 
-	if (pulse_input_setup()) {
+	int hw_err = hw_pulse_counter_init();
+
+	if (hw_err) {
+		LOG_ERR("hw_pulse_counter_init failed: %d — pulse counting will not work",
+			hw_err);
 		while (1) {
-			blink(1, 500, 500);
+			blink(1, 250, 250);
 		}
 	}
 
@@ -406,12 +328,10 @@ int main(void)
 	 * log backend still buffers them for the current session).
 	 */
 	struct pulse_accumulator acc;
-	struct pulse_edge_detector detector;
 	struct persist_policy policy;
 	struct report_gate pulse_heartbeat;
 
 	pulse_accumulator_init(&acc);
-	pulse_edge_detector_init(&detector, PHOTOTRANSISTOR_THRESHOLD_MV);
 	persist_policy_init(&policy, PERSIST_INTERVAL_MS, PERSIST_MAX_PULSE_DELTA);
 	report_gate_init(&pulse_heartbeat, ZIGBEE_REPORT_PULSE_HEARTBEAT);
 
@@ -473,10 +393,10 @@ int main(void)
 	wait_for_host_dtr_or_timeout(cdc, 5000);
 
 	LOG_INF("XIAO Zigbee Energy Meter booted");
-	LOG_INF("sampling phototransistor on A0 (AIN0) at 10 Hz, threshold=%d mV",
-		PHOTOTRANSISTOR_THRESHOLD_MV);
+	LOG_INF("pulse counting: phototransistor on A0 (AIN0) → LPCOMP → PPI → TIMER2, "
+		"threshold=VDD*3/8 (HYST on)");
 	LOG_INF("user button on D6 (P1.11) — short-press (<1 s) join, long-press (>=3 s) factory reset");
-	LOG_INF("bench pulse input on D7 (P1.12) — falling-edge = 1 pulse (no debounce, no join callback)");
+	LOG_INF("bench pulse input on D7 (P1.12) — falling-edge via GPIOTE→PPI→TIMER2 (no debounce)");
 	LOG_INF("boot-hold: sw0 held for %u ms at boot erases the NVS accumulator (4× LED confirm)",
 		BOOT_ERASE_HOLD_MS);
 
@@ -504,7 +424,6 @@ int main(void)
 		}
 	}
 
-	uint32_t sample = 0;
 	uint32_t heartbeat_counter = 0;
 
 	/* Publish the just-restored total once so Z2M sees a live
@@ -520,29 +439,23 @@ int main(void)
 			  K_MSEC(ZIGBEE_REPORT_INTERVAL_MS));
 
 	while (1) {
-		int32_t mv = 0;
-		int err = read_phototransistor_mv(&mv);
-
-		bool edge = !err && pulse_edge_detector_sample(&detector, mv);
-
-		if (edge) {
-			atomic_inc(&bench_pulse_count);
-		}
-
-		uint32_t pulses = (uint32_t)atomic_get(&bench_pulse_count);
+		/* Snapshot the hardware counter. LPCOMP-driven and GPIOTE
+		 * (bench) events both feed TIMER2 via PPI, so this reads
+		 * the union of "real meter pulses" + "bench simulator
+		 * pulses" — no separate atomic to merge in.
+		 */
+		uint32_t pulses = hw_pulse_counter_read();
 
 		pulse_accumulator_update(&acc, pulses);
 
 		uint64_t total = pulse_accumulator_total(&acc);
 
 		if (total != last_published_total) {
+			uint64_t delta = total - last_published_total;
+
 			/* Push the fresh total into the Metering attribute
 			 * so a manual Z2M read returns live data without
-			 * waiting for the 5-min tick. Fires on both ADC-
-			 * edge counts AND button-triggered bench pulses
-			 * (the button ISR bumps bench_pulse_count directly,
-			 * which advances the accumulator on the next sample
-			 * iteration even though `edge` is false here).
+			 * waiting for the 5-min tick.
 			 *
 			 * Every Nth per-pulse publish also forces an explicit
 			 * report frame so a broken coordinator-side binding
@@ -554,21 +467,11 @@ int main(void)
 			} else {
 				zigbee_app_publish_summation(total);
 			}
+			LOG_INF("pulse(s) counted: delta=%llu accumulator_total=%llu",
+				(unsigned long long)delta,
+				(unsigned long long)total);
 			last_published_total = total;
 		}
-
-		if (err) {
-			LOG_ERR("adc read failed: %d", err);
-		} else if (edge) {
-			/* Only log when a real pulse is counted. Per-sample
-			 * logs at 10 Hz were flooding the serial and drowning
-			 * out Zigbee events during commissioning.
-			 */
-			LOG_INF("pulse counted: voltage_mv=%d accumulator_total=%llu",
-				mv,
-				(unsigned long long)pulse_accumulator_total(&acc));
-		}
-		sample++;
 
 		int64_t now = k_uptime_get();
 
@@ -586,13 +489,12 @@ int main(void)
 			}
 		}
 
-		/* Toggle LED every 5 samples = 1 Hz heartbeat. */
-		if (++heartbeat_counter >= 5) {
+		if (++heartbeat_counter >= HEARTBEAT_TOGGLE_EVERY) {
 			gpio_pin_toggle_dt(&led);
 			heartbeat_counter = 0;
 		}
 
-		k_sleep(K_MSEC(100));
+		k_sleep(K_MSEC(SAMPLE_LOOP_INTERVAL_MS));
 	}
 
 	return 0;
