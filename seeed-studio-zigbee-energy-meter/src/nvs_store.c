@@ -5,7 +5,10 @@
 #include <zephyr/device.h>
 #include <zephyr/drivers/flash.h>
 #include <zephyr/fs/nvs.h>
+#include <zephyr/logging/log.h>
 #include <zephyr/storage/flash_map.h>
+
+LOG_MODULE_REGISTER(nvs_store, LOG_LEVEL_INF);
 
 /* Single-record store — one u64 for the accumulator total. Keeping the ID
  * space tiny for now; if we later persist other things (Zigbee join state,
@@ -44,7 +47,22 @@ int nvs_store_init(void)
 
 	rc = nvs_mount(&fs);
 	if (rc) {
-		return rc;
+		/* Field-realistic failure: partition contents inconsistent with
+		 * what NVS expects (prior firmware layout, partial-write from a
+		 * cut power event, bit rot in sector headers). Wipe the
+		 * partition and retry once — losing the accumulator value is
+		 * strictly better than perpetual data loss until reflash.
+		 * See issue #15.
+		 */
+		int clr = nvs_clear(&fs);
+
+		if (clr == 0) {
+			rc = nvs_mount(&fs);
+		}
+		if (rc) {
+			return rc;
+		}
+		LOG_WRN("recovered NVS after mount failure — accumulator reset to 0");
 	}
 
 	initialized = true;
