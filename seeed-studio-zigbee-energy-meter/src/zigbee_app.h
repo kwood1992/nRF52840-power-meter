@@ -59,4 +59,24 @@ bool zigbee_app_is_joined(void);
  */
 void zigbee_app_publish_summation(uint64_t pulse_total);
 
+/*
+ * Same as `zigbee_app_publish_summation`, but ALSO explicitly emits a
+ * ZCL Report Attributes frame after the write — bypassing the reporting
+ * engine's delta-threshold gate. Use this on the 5-minute periodic
+ * tick and on the per-N-pulses heartbeat where we want the coordinator
+ * to see the value even if the delta since last report is below the
+ * ConfigureReporting `reportable_change` value.
+ *
+ * The forced-report is a no-op (with a WRN log) if the coordinator
+ * hasn't sent ConfigureReporting yet — there's no reporting slot to
+ * populate the frame's destination from. The attribute write itself
+ * still happens either way.
+ *
+ * Context: issue #20. The ZBOSS reporting engine can silently stop
+ * emitting reports after a factory-reset + rejoin cycle even when
+ * writes still land in the attribute table; explicit report frames
+ * side-step whatever state got out of sync.
+ */
+void zigbee_app_publish_summation_and_report(uint64_t pulse_total);
+
 #endif
