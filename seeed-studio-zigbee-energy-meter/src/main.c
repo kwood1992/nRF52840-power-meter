@@ -51,6 +51,19 @@
 #define BUTTON_SHORT_MAX_MS    1000U
 #define BUTTON_LONG_MIN_MS     3000U
 
+/* Boot-hold accumulator erase: sw0 held continuously for this long at
+ * boot wipes the NVS-persisted total to 0. Covers the redeployment case
+ * (moving the sensor to a different physical meter). Confirmation is
+ * BOOT_ERASE_BLINK_COUNT rapid red-LED blinks so the user has visible
+ * feedback without needing serial. See
+ * docs/working/2026-07-24-boot-hold-erase.md for the gesture rationale
+ * and its relationship to the post-boot short/long-press bands.
+ */
+#define BOOT_ERASE_HOLD_MS       3000U
+#define BOOT_ERASE_POLL_MS       10U
+#define BOOT_ERASE_BLINK_COUNT   4
+#define BOOT_ERASE_BLINK_MS      150
+
 LOG_MODULE_REGISTER(main, LOG_LEVEL_INF);
 
 /* Onboard red LED (P0.26, active-low) used as a boot indicator and
@@ -187,25 +200,46 @@ static int read_phototransistor_mv(int32_t *out_mv)
 	return 0;
 }
 
-static int user_button_setup(void)
+/* Split from user_button_arm_irq() so main() can poll sw0 for the
+ * boot-hold accumulator-erase gesture BEFORE the edge interrupt goes
+ * live. If the IRQ were armed first, a "held at boot" state would
+ * synthesize a spurious release event on eventual let-go and the
+ * button classifier would misread the boot-hold as a long-press
+ * factory-reset.
+ */
+static int user_button_configure(void)
 {
 	if (!device_is_ready(user_button.port)) {
 		return -ENODEV;
 	}
 
-	int err = gpio_pin_configure_dt(&user_button, GPIO_INPUT);
+	return gpio_pin_configure_dt(&user_button, GPIO_INPUT);
+}
 
-	if (err) {
-		return err;
-	}
+static int user_button_arm_irq(void)
+{
+	int err = gpio_pin_interrupt_configure_dt(&user_button, GPIO_INT_EDGE_BOTH);
 
-	err = gpio_pin_interrupt_configure_dt(&user_button, GPIO_INT_EDGE_BOTH);
 	if (err) {
 		return err;
 	}
 
 	gpio_init_callback(&user_button_cb, user_button_isr, BIT(user_button.pin));
 	return gpio_add_callback(user_button.port, &user_button_cb);
+}
+
+static bool boot_button_held(uint32_t threshold_ms)
+{
+	uint32_t elapsed = 0;
+
+	while (elapsed < threshold_ms) {
+		if (gpio_pin_get_dt(&user_button) != 1) {
+			return false;
+		}
+		k_sleep(K_MSEC(BOOT_ERASE_POLL_MS));
+		elapsed += BOOT_ERASE_POLL_MS;
+	}
+	return true;
 }
 
 static int pulse_input_setup(void)
@@ -328,7 +362,7 @@ int main(void)
 		}
 	}
 
-	if (user_button_setup()) {
+	if (user_button_configure()) {
 		while (1) {
 			blink(1, 500, 500);
 		}
@@ -340,28 +374,17 @@ int main(void)
 		}
 	}
 
-	/* Hold up to 5 s for a serial monitor to attach so early logs are
-	 * visible; then proceed regardless.
+	/* NVS + boot-hold gesture check runs BEFORE wait_for_host_dtr_or_timeout
+	 * and zigbee_app_init so the total delay from power-on to the point the
+	 * hold poll starts stays around 1 s (Zephyr init + boot blink + GPIO
+	 * configure). Any later placement compounds with the 5 s DTR wait on a
+	 * battery-powered boot with no serial host and forces the user to hold
+	 * the button for 8-10 s to trigger the erase — well past the 3 s spec
+	 * in issue #14. Cost of the early placement: the "restored…" /
+	 * "accumulator erased" LOG_INFs fire before DTR asserts, so a monitor
+	 * that attaches after boot won't see them in the live stream (Zephyr's
+	 * log backend still buffers them for the current session).
 	 */
-	wait_for_host_dtr_or_timeout(cdc, 5000);
-
-	LOG_INF("XIAO Zigbee Energy Meter booted");
-	LOG_INF("sampling phototransistor on A0 (AIN0) at 10 Hz, threshold=%d mV",
-		PHOTOTRANSISTOR_THRESHOLD_MV);
-	LOG_INF("user button on D6 (P1.11) — short-press (<1 s) join, long-press (>=3 s) factory reset");
-	LOG_INF("bench pulse input on D7 (P1.12) — falling-edge = 1 pulse (no debounce, no join callback)");
-
-	button_press_classifier_init(&button_classifier,
-				     BUTTON_SHORT_MAX_MS,
-				     BUTTON_LONG_MIN_MS);
-
-	int zb_err = zigbee_app_init();
-
-	if (zb_err) {
-		LOG_ERR("zigbee_app_init failed: %d — continuing without Zigbee",
-			zb_err);
-	}
-
 	struct pulse_accumulator acc;
 	struct pulse_edge_detector detector;
 	struct persist_policy policy;
@@ -386,6 +409,27 @@ int main(void)
 		LOG_ERR("nvs_store_init failed: %d — proceeding without persistence",
 			nvs_err);
 	} else {
+		/* Erase-before-load: check the boot-hold gesture, overwrite
+		 * the accumulator record with 0 if held, then let load_total
+		 * run normally. After a successful erase the load returns 0
+		 * and the sample loop's restore path logs
+		 * "restored accumulator_total=0 from NVS" — indistinguishable
+		 * from a device that legitimately reached total=0.
+		 */
+		if (boot_button_held(BOOT_ERASE_HOLD_MS)) {
+			int erase_err = nvs_store_save_total(0);
+
+			if (erase_err) {
+				LOG_ERR("boot-hold accumulator erase failed: %d",
+					erase_err);
+			} else {
+				LOG_INF("accumulator erased by boot-hold");
+				blink(BOOT_ERASE_BLINK_COUNT,
+				      BOOT_ERASE_BLINK_MS,
+				      BOOT_ERASE_BLINK_MS);
+			}
+		}
+
 		uint64_t saved = 0;
 		int load_err = nvs_store_load_total(&saved);
 
@@ -398,6 +442,43 @@ int main(void)
 			LOG_INF("no persisted accumulator total — cold boot");
 		} else {
 			LOG_ERR("nvs_store_load_total failed: %d", load_err);
+		}
+	}
+
+	/* Hold up to 5 s for a serial monitor to attach so early logs are
+	 * visible; then proceed regardless.
+	 */
+	wait_for_host_dtr_or_timeout(cdc, 5000);
+
+	LOG_INF("XIAO Zigbee Energy Meter booted");
+	LOG_INF("sampling phototransistor on A0 (AIN0) at 10 Hz, threshold=%d mV",
+		PHOTOTRANSISTOR_THRESHOLD_MV);
+	LOG_INF("user button on D6 (P1.11) — short-press (<1 s) join, long-press (>=3 s) factory reset");
+	LOG_INF("bench pulse input on D7 (P1.12) — falling-edge = 1 pulse (no debounce, no join callback)");
+	LOG_INF("boot-hold: sw0 held for %u ms at boot erases the NVS accumulator (4× LED confirm)",
+		BOOT_ERASE_HOLD_MS);
+
+	button_press_classifier_init(&button_classifier,
+				     BUTTON_SHORT_MAX_MS,
+				     BUTTON_LONG_MIN_MS);
+
+	int zb_err = zigbee_app_init();
+
+	if (zb_err) {
+		LOG_ERR("zigbee_app_init failed: %d — continuing without Zigbee",
+			zb_err);
+	}
+
+	/* Arm the sw0 edge interrupt only now that the boot-hold poll AND
+	 * zigbee_app_init have run. Ordering matters: user_button_isr posts
+	 * short-press events that the dispatch thread hands to
+	 * zigbee_app_start_join(), which reaches into ZBOSS internals; that
+	 * whole call chain relies on the classifier being initialised and
+	 * ZBOSS having been brought up first.
+	 */
+	if (user_button_arm_irq()) {
+		while (1) {
+			blink(1, 500, 500);
 		}
 	}
 
