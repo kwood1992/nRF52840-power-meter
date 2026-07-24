@@ -17,6 +17,7 @@ target_sources(app PRIVATE
 	src/persist_policy.c
 	src/pulse_accumulator.c
 	src/pulse_edge_detector.c
+	src/report_gate.c
 	src/zigbee_app.c
 )
 

@@ -14,6 +14,7 @@
 #include "persist_policy.h"
 #include "pulse_accumulator.h"
 #include "pulse_edge_detector.h"
+#include "report_gate.h"
 #include "zigbee_app.h"
 
 /* Voltage threshold at which the phototransistor is considered "lit" for a
@@ -43,6 +44,17 @@
  * clock cadence, which is functionally identical for Z2M's purposes.
  */
 #define ZIGBEE_REPORT_INTERVAL_MS  (5U * 60U * 1000U)
+
+/* Force an explicit ZCL Report Attributes frame every N per-pulse
+ * publishes, in addition to the reporting engine's own delta trigger
+ * and the 5-min wall-clock tick. Belt-and-braces for issue #20 — a
+ * stale coordinator-side binding surfaces within N pulses (~100 s at
+ * the typical bench 1 Hz injection rate) instead of at the 65000 s
+ * max_interval force-fire. N chosen to match Z2M's default
+ * reportable_change of 100, so the explicit path and the delta path
+ * converge on the same worst-case cadence.
+ */
+#define ZIGBEE_REPORT_PULSE_HEARTBEAT  100U
 
 /* Button press bands. Anything in the 1–3 s gap is ignored to avoid
  * accidental factory-resets when the user meant "short press". See
@@ -323,7 +335,15 @@ static void metering_report_work_handler(struct k_work *work)
 
 	LOG_INF("metering report tick: CurrentSummationDelivered=%llu",
 		(unsigned long long)total);
-	zigbee_app_publish_summation(total);
+	/* Force an explicit report frame on the 5-min tick. Without
+	 * this the ZBOSS reporting engine only emits when the delta
+	 * since last report crosses `reportable_change` (default 100
+	 * from Z2M) — so a slow trickle of pulses can leave Z2M
+	 * without a datapoint for hours (up to max_interval = 65000 s).
+	 * The design-doc contract is "one report per 5 min"; this
+	 * closes that gap. See #20.
+	 */
+	zigbee_app_publish_summation_and_report(total);
 
 	k_work_reschedule(&metering_report_work,
 			  K_MSEC(ZIGBEE_REPORT_INTERVAL_MS));
@@ -388,10 +408,12 @@ int main(void)
 	struct pulse_accumulator acc;
 	struct pulse_edge_detector detector;
 	struct persist_policy policy;
+	struct report_gate pulse_heartbeat;
 
 	pulse_accumulator_init(&acc);
 	pulse_edge_detector_init(&detector, PHOTOTRANSISTOR_THRESHOLD_MV);
 	persist_policy_init(&policy, PERSIST_INTERVAL_MS, PERSIST_MAX_PULSE_DELTA);
+	report_gate_init(&pulse_heartbeat, ZIGBEE_REPORT_PULSE_HEARTBEAT);
 
 	uint64_t last_saved_total = 0;
 	/* Backdate last_saved_ms by the full persist interval so the *first*
@@ -521,8 +543,17 @@ int main(void)
 			 * (the button ISR bumps bench_pulse_count directly,
 			 * which advances the accumulator on the next sample
 			 * iteration even though `edge` is false here).
+			 *
+			 * Every Nth per-pulse publish also forces an explicit
+			 * report frame so a broken coordinator-side binding
+			 * (issue #20) surfaces on the bench inside ~N pulses
+			 * instead of only at the 5-min tick.
 			 */
-			zigbee_app_publish_summation(total);
+			if (report_gate_advance(&pulse_heartbeat)) {
+				zigbee_app_publish_summation_and_report(total);
+			} else {
+				zigbee_app_publish_summation(total);
+			}
 			last_published_total = total;
 		}
 

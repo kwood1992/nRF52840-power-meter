@@ -349,11 +349,9 @@ static void factory_reset_cb(zb_uint8_t param)
  */
 static uint64_t pending_summation_total;
 
-static void publish_summation_cb(zb_uint8_t param)
+static void write_summation_attribute(uint64_t pulse_total)
 {
-	ARG_UNUSED(param);
-
-	struct metering_u48 v = metering_scale_to_u48(pending_summation_total);
+	struct metering_u48 v = metering_scale_to_u48(pulse_total);
 	zb_uint48_t summation;
 
 	ZB_ASSIGN_UINT48(summation, v.high, v.low);
@@ -371,6 +369,61 @@ static void publish_summation_cb(zb_uint8_t param)
 		ZB_ZCL_ATTR_METERING_CURRENT_SUMMATION_DELIVERED_ID,
 		(zb_uint8_t *)&summation,
 		ZB_FALSE);
+}
+
+/*
+ * Explicit ZCL Report Attributes frame for CurrentSummationDelivered.
+ * Runs on the ZBOSS thread. Bypasses the reporting engine's delta gate
+ * — see the zigbee_app.h comment on publish_summation_and_report for
+ * the rationale (issue #20).
+ *
+ * Two failure modes we intentionally log but recover from:
+ *   * No reporting slot for the attribute yet — coordinator hasn't
+ *     sent ConfigureReporting since our last join, or we booted before
+ *     Z2M finished interviewing. Frame can't be built without a
+ *     destination; skip and let the reporting engine try again next
+ *     tick.
+ *   * No free OUT buffer. ZBOSS's buffer pool is small; a report on
+ *     top of an already-pending report can transiently starve. Skip
+ *     and rely on the next tick.
+ */
+static void send_explicit_summation_report(void)
+{
+	zb_zcl_reporting_info_t *rep_info = zb_zcl_find_reporting_info(
+		APP_ENDPOINT,
+		ZB_ZCL_CLUSTER_ID_METERING,
+		ZB_ZCL_CLUSTER_SERVER_ROLE,
+		ZB_ZCL_ATTR_METERING_CURRENT_SUMMATION_DELIVERED_ID);
+
+	if (rep_info == NULL) {
+		LOG_WRN("no reporting slot for CurrentSummationDelivered — "
+			"coordinator ConfigureReporting not seen yet");
+		return;
+	}
+
+	zb_bufid_t bufid = zb_buf_get_out();
+
+	if (bufid == 0) {
+		LOG_WRN("no free OUT buffer for explicit summation report");
+		return;
+	}
+
+	zb_zcl_send_report_attr_command(rep_info, bufid);
+}
+
+static void publish_summation_cb(zb_uint8_t param)
+{
+	ARG_UNUSED(param);
+
+	write_summation_attribute(pending_summation_total);
+}
+
+static void publish_summation_and_report_cb(zb_uint8_t param)
+{
+	ARG_UNUSED(param);
+
+	write_summation_attribute(pending_summation_total);
+	send_explicit_summation_report();
 }
 
 void zigbee_app_start_join(void)
@@ -409,4 +462,14 @@ void zigbee_app_publish_summation(uint64_t pulse_total)
 	 */
 	pending_summation_total = pulse_total;
 	ZB_SCHEDULE_APP_CALLBACK(publish_summation_cb, 0);
+}
+
+void zigbee_app_publish_summation_and_report(uint64_t pulse_total)
+{
+	if (!endpoint_registered) {
+		return;
+	}
+
+	pending_summation_total = pulse_total;
+	ZB_SCHEDULE_APP_CALLBACK(publish_summation_and_report_cb, 0);
 }

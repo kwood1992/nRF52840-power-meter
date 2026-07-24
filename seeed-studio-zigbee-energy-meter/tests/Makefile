@@ -2,7 +2,7 @@ CC      ?= cc
 CFLAGS  ?= -std=c11 -Wall -Wextra -Wpedantic -Werror -O0 -g -I../src
 BUILD   := build
 
-TESTS := test_pulse_accumulator test_pulse_edge_detector test_persist_policy test_button_press_classifier test_metering_scale
+TESTS := test_pulse_accumulator test_pulse_edge_detector test_persist_policy test_button_press_classifier test_metering_scale test_report_gate
 
 .PHONY: all test clean
 all: test
@@ -25,6 +25,9 @@ $(BUILD)/test_button_press_classifier: test_button_press_classifier.c ../src/but
 
 $(BUILD)/test_metering_scale: test_metering_scale.c ../src/metering_scale.c ../src/metering_scale.h | $(BUILD)
 	$(CC) $(CFLAGS) -o $@ test_metering_scale.c ../src/metering_scale.c
+
+$(BUILD)/test_report_gate: test_report_gate.c ../src/report_gate.c ../src/report_gate.h | $(BUILD)
+	$(CC) $(CFLAGS) -o $@ test_report_gate.c ../src/report_gate.c
 
 $(BUILD):
 	@mkdir -p $(BUILD)
