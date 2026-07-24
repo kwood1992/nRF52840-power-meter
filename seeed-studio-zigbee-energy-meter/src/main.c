@@ -65,19 +65,25 @@ static const struct adc_dt_spec phototransistor_adc =
 	ADC_DT_SPEC_GET(DT_PATH(zephyr_user));
 
 /* User button on XIAO D6 (P1.11), active-low with internal pull-up.
- * Both a Zigbee join / factory-reset trigger and (temporarily, until
- * issue #7 lands the LPCOMP hardware chain) a bench pulse source —
- * each press-start bumps bench_pulse_count so the sample loop still
- * sees pulses on the bench without a real meter-LED wired in.
+ * Zigbee join (short-press) / factory-reset (long-press) only. Pulse
+ * counting moved off this pin in #16 onto D7 (see pulse_input below) so
+ * the bench rig can inject pulses without triggering the join callback
+ * on every simulated pulse.
  */
 static const struct gpio_dt_spec user_button = GPIO_DT_SPEC_GET(DT_ALIAS(sw0), gpios);
 
-#define BENCH_DEBOUNCE_MS 5
+/* Dedicated bench pulse-simulator input on XIAO D7 (P1.12), active-low
+ * with internal pull-up. Every falling edge bumps bench_pulse_count.
+ * No debounce, no ZBOSS-touching side effects — Pi's ~/xiao-pulse.sh
+ * generates clean pulses (~250 ms LOW), so on-MCU debounce would
+ * suppress legitimate injections. Retired by #7's LPCOMP chain.
+ */
+static const struct gpio_dt_spec pulse_input = GPIO_DT_SPEC_GET(DT_ALIAS(sw1), gpios);
 
 static atomic_t bench_pulse_count = ATOMIC_INIT(0);
-static int64_t bench_last_edge_ms;
 static int64_t button_press_start_ms;
 static struct gpio_callback user_button_cb;
+static struct gpio_callback pulse_input_cb;
 static struct button_press_classifier button_classifier;
 
 static K_SEM_DEFINE(button_release_sem, 0, 1);
@@ -95,15 +101,7 @@ static void user_button_isr(const struct device *dev,
 	int value = gpio_pin_get_dt(&user_button);
 
 	if (value == 1) {
-		/* Active — falling edge on the pin, i.e. press start.
-		 * Also increment the bench pulse count (removed by #7
-		 * when the LPCOMP hardware chain takes over the pulse
-		 * source).
-		 */
-		if (now - bench_last_edge_ms >= BENCH_DEBOUNCE_MS) {
-			atomic_inc(&bench_pulse_count);
-			bench_last_edge_ms = now;
-		}
+		/* Active — falling edge on the pin, i.e. press start. */
 		button_press_start_ms = now;
 	} else {
 		/* Rising edge — press release. Publish the duration
@@ -125,6 +123,17 @@ static void user_button_isr(const struct device *dev,
 		atomic_set(&button_press_duration_ms, (atomic_val_t)duration);
 		k_sem_give(&button_release_sem);
 	}
+}
+
+static void pulse_input_isr(const struct device *dev,
+			    struct gpio_callback *cb,
+			    uint32_t pins)
+{
+	ARG_UNUSED(dev);
+	ARG_UNUSED(cb);
+	ARG_UNUSED(pins);
+
+	atomic_inc(&bench_pulse_count);
 }
 
 static void blink(int times, int on_ms, int off_ms)
@@ -197,6 +206,27 @@ static int user_button_setup(void)
 
 	gpio_init_callback(&user_button_cb, user_button_isr, BIT(user_button.pin));
 	return gpio_add_callback(user_button.port, &user_button_cb);
+}
+
+static int pulse_input_setup(void)
+{
+	if (!device_is_ready(pulse_input.port)) {
+		return -ENODEV;
+	}
+
+	int err = gpio_pin_configure_dt(&pulse_input, GPIO_INPUT);
+
+	if (err) {
+		return err;
+	}
+
+	err = gpio_pin_interrupt_configure_dt(&pulse_input, GPIO_INT_EDGE_TO_ACTIVE);
+	if (err) {
+		return err;
+	}
+
+	gpio_init_callback(&pulse_input_cb, pulse_input_isr, BIT(pulse_input.pin));
+	return gpio_add_callback(pulse_input.port, &pulse_input_cb);
 }
 
 static void button_dispatch_thread(void *a, void *b, void *c)
@@ -304,6 +334,12 @@ int main(void)
 		}
 	}
 
+	if (pulse_input_setup()) {
+		while (1) {
+			blink(1, 500, 500);
+		}
+	}
+
 	/* Hold up to 5 s for a serial monitor to attach so early logs are
 	 * visible; then proceed regardless.
 	 */
@@ -313,6 +349,7 @@ int main(void)
 	LOG_INF("sampling phototransistor on A0 (AIN0) at 10 Hz, threshold=%d mV",
 		PHOTOTRANSISTOR_THRESHOLD_MV);
 	LOG_INF("user button on D6 (P1.11) — short-press (<1 s) join, long-press (>=3 s) factory reset");
+	LOG_INF("bench pulse input on D7 (P1.12) — falling-edge = 1 pulse (no debounce, no join callback)");
 
 	button_press_classifier_init(&button_classifier,
 				     BUTTON_SHORT_MAX_MS,

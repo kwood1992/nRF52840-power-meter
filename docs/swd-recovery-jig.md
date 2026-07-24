@@ -63,6 +63,23 @@ Physical layout of the Pi 40-pin header is documented at
 <https://pinout.xyz>. Pin 1 is the corner nearest the SD card slot;
 count down the columns to find 6, 16, 18, 22.
 
+### Optional bench-input wires (front-of-XIAO pins)
+
+Two extra jumpers let the Pi drive on-board interrupts over SSH so you
+can exercise the firmware without touching the board. Both are
+active-low inputs with internal pull-ups; the Pi pulls them LOW to fire
+an edge.
+
+| XIAO pin | Pi header pin | Pi BCM GPIO | Purpose |
+|---|---|---|---|
+| D6 (P1.11) | 11 | GPIO 17 | User button — `~/xiao-short-press.sh` joins, `~/xiao-long-press.sh` factory-resets |
+| D7 (P1.12) | 13 | GPIO 27 | Bench pulse-simulator — `~/xiao-pulse.sh` bumps the accumulator by 1 with no join-callback side effect (see issue #16) |
+
+`GND` is already wired through the SWD block above, so the input wires
+only need one line each. The two `~/xiao-pulse*` helper scripts and the
+`~/xiao-short/long-press.sh` scripts live on the Pi; templates are in
+[`tools/`](../tools/) — copy them into the Pi's home dir and `chmod +x`.
+
 ---
 
 ## Software setup (one-time)

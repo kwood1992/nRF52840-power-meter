@@ -22,20 +22,33 @@
 		compatible = "gpio-keys";
 
 		/*
-		 * User button on XIAO D6 (P1.11). Long-term this is the Zigbee
-		 * join / factory-reset button; short-term we use each press as
-		 * a bench pulse for validating the accumulator + Zigbee report
-		 * pipeline. Once real Zigbee handlers land, this alias moves
-		 * into a proper button abstraction with short/long-press.
+		 * User button on XIAO D6 (P1.11). Short-press joins /
+		 * rejoins the Zigbee network; long-press factory-resets.
+		 * Bench rig: Pi BCM GPIO 17 → D6 emulates presses over SSH
+		 * (see docs/swd-recovery-jig.md).
 		 */
 		user_button: user_button {
 			gpios = <&gpio1 11 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
 			label = "User button (XIAO D6 = P1.11)";
 		};
+
+		/*
+		 * Dedicated bench pulse-simulator input on XIAO D7 (P1.12).
+		 * Each falling edge bumps bench_pulse_count in main.c so
+		 * pulses can be injected without doubling as a D6 press
+		 * (which would spam the join callback). Bench rig: Pi BCM
+		 * GPIO 27 → D7. Removed once #7 lands the LPCOMP hardware
+		 * chain and the sample loop's software counter goes away.
+		 */
+		pulse_input: pulse_input {
+			gpios = <&gpio1 12 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
+			label = "Bench pulse input (XIAO D7 = P1.12)";
+		};
 	};
 
 	aliases {
 		sw0 = &user_button;
+		sw1 = &pulse_input;
 	};
 };
 
