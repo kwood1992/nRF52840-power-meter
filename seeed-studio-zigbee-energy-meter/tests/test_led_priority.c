@@ -95,7 +95,6 @@ static void test_priority_table_ordering(void)
 	} table[] = {
 		{ LED_PATTERN_FATAL,           LED_PRIO_FATAL           },
 		{ LED_PATTERN_LONG_PRESS_HOLD, LED_PRIO_LONG_PRESS_HOLD },
-		{ LED_PATTERN_IDENTIFY,        LED_PRIO_IDENTIFY        },
 		{ LED_PATTERN_JOINING,         LED_PRIO_JOINING         },
 		{ LED_PATTERN_JOIN_SUCCESS,    LED_PRIO_JOIN_SUCCESS    },
 		{ LED_PATTERN_JOIN_FAIL,       LED_PRIO_JOIN_FAIL       },
@@ -140,7 +139,6 @@ static void test_button_ack_preempted_by_all_higher_slots(void)
 	} higher[] = {
 		{ LED_PATTERN_FATAL,           LED_PRIO_FATAL           },
 		{ LED_PATTERN_LONG_PRESS_HOLD, LED_PRIO_LONG_PRESS_HOLD },
-		{ LED_PATTERN_IDENTIFY,        LED_PRIO_IDENTIFY        },
 		{ LED_PATTERN_JOINING,         LED_PRIO_JOINING         },
 		{ LED_PATTERN_JOIN_SUCCESS,    LED_PRIO_JOIN_SUCCESS    },
 		{ LED_PATTERN_JOIN_FAIL,       LED_PRIO_JOIN_FAIL       },
@@ -161,7 +159,7 @@ static void test_button_ack_preempted_by_all_higher_slots(void)
 
 static void test_button_ack_preempts_heartbeat(void)
 {
-	/* And the one thing button-ack can preempt: heartbeat (prio 9). */
+	/* And the one thing button-ack can preempt: heartbeat (prio 8). */
 	struct led_priority_state s;
 
 	led_priority_init(&s);
@@ -198,32 +196,25 @@ static void test_joining_preempts_button_ack(void)
 	assert(led_priority_selected(&s) == LED_PATTERN_JOINING);
 }
 
-static void test_long_press_hold_preempts_joining_and_identify(void)
+static void test_long_press_hold_preempts_joining(void)
 {
 	/* From issue #30 AC: LONG_PRESS_HOLD (prio 2) must preempt JOINING
-	 * (prio 4) and IDENTIFY (prio 3). Both are covered by
-	 * test_priority_table_ordering; naming them makes regressions on
-	 * this specific pair pop out immediately in test output.
+	 * (prio 3). Covered by test_priority_table_ordering; naming it makes
+	 * regressions on this specific pair pop out immediately in test output.
 	 */
 	struct led_priority_state s;
 
 	led_priority_init(&s);
 	led_priority_request(&s, LED_PATTERN_JOINING, LED_PRIO_JOINING);
-	assert(led_priority_request(&s, LED_PATTERN_LONG_PRESS_HOLD,
-				    LED_PRIO_LONG_PRESS_HOLD) == true);
-	assert(led_priority_selected(&s) == LED_PATTERN_LONG_PRESS_HOLD);
-
-	led_priority_init(&s);
-	led_priority_request(&s, LED_PATTERN_IDENTIFY, LED_PRIO_IDENTIFY);
 	assert(led_priority_request(&s, LED_PATTERN_LONG_PRESS_HOLD,
 				    LED_PRIO_LONG_PRESS_HOLD) == true);
 	assert(led_priority_selected(&s) == LED_PATTERN_LONG_PRESS_HOLD);
 }
 
-static void test_joining_preempted_by_long_press_hold_and_identify(void)
+static void test_joining_preempted_by_long_press_hold(void)
 {
 	/* From issue #29 AC: JOINING must be preempted by LONG_PRESS_HOLD
-	 * (prio 2) and IDENTIFY (prio 3).
+	 * (prio 2).
 	 */
 	struct led_priority_state s;
 
@@ -232,12 +223,6 @@ static void test_joining_preempted_by_long_press_hold_and_identify(void)
 	assert(led_priority_request(&s, LED_PATTERN_LONG_PRESS_HOLD,
 				    LED_PRIO_LONG_PRESS_HOLD) == true);
 	assert(led_priority_selected(&s) == LED_PATTERN_LONG_PRESS_HOLD);
-
-	led_priority_init(&s);
-	led_priority_request(&s, LED_PATTERN_JOINING, LED_PRIO_JOINING);
-	assert(led_priority_request(&s, LED_PATTERN_IDENTIFY,
-				    LED_PRIO_IDENTIFY) == true);
-	assert(led_priority_selected(&s) == LED_PATTERN_IDENTIFY);
 }
 
 static void test_re_request_same_pattern_keeps_stronger_prio(void)
@@ -281,8 +266,8 @@ int main(void)
 	RUN(test_button_ack_preempts_heartbeat);
 	RUN(test_invalid_pattern_is_rejected);
 	RUN(test_joining_preempts_button_ack);
-	RUN(test_joining_preempted_by_long_press_hold_and_identify);
-	RUN(test_long_press_hold_preempts_joining_and_identify);
+	RUN(test_joining_preempted_by_long_press_hold);
+	RUN(test_long_press_hold_preempts_joining);
 	RUN(test_re_request_same_pattern_keeps_stronger_prio);
 	printf("all tests passed\n");
 	return 0;

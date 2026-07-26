@@ -206,23 +206,6 @@ void zboss_signal_handler(zb_bufid_t bufid)
 	}
 }
 
-/*
- * Identify callback. ZBOSS invokes with non-NULL bufid when the
- * coordinator issues a ZCL Identify command; NULL bufid when the
- * duration elapses on the coordinator side or an explicit
- * IdentifyQuery/cancel resolves it (#31).
- */
-static void identify_cb(zb_bufid_t bufid)
-{
-	if (bufid) {
-		LOG_INF("identify request received (bufid=%u)", bufid);
-		led_request(LED_PATTERN_IDENTIFY, LED_PRIO_IDENTIFY);
-	} else {
-		LOG_INF("identify cancelled");
-		led_cancel(LED_PATTERN_IDENTIFY);
-	}
-}
-
 static void metering_attrs_init(void)
 {
 	/* CurrentSummationDelivered — starts at 0; replaced by whatever
@@ -316,8 +299,6 @@ int zigbee_app_init(void)
 	ZB_AF_REGISTER_DEVICE_CTX(&app_ctx);
 	app_clusters_attr_init();
 	endpoint_registered = true;
-
-	ZB_AF_SET_IDENTIFY_NOTIFICATION_HANDLER(APP_ENDPOINT, identify_cb);
 
 	/*
 	 * Sleepy-behavior is DISABLED for the USB-dev phase.
