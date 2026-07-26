@@ -69,14 +69,11 @@
 /* Wake cadence for the sample / persist / heartbeat loop. Pulse counting
  * is now hardware (LPCOMP + PPI + TIMER2) so this loop no longer needs
  * to be a Nyquist-margin oversampler of the phototransistor waveform —
- * it just needs to service the persist policy and blink the LED. 200 ms
- * keeps the LED heartbeat visible (~1 Hz with a toggle every 5 wakes)
- * and bounds "how long a fresh pulse waits before Z2M sees it" to well
- * under a second. Cadence tightens further in #8 when the loop becomes
- * an RTC-driven wake instead of a k_sleep.
+ * it just needs to service the persist policy. Cadence tightens
+ * further in #8 when the loop becomes an RTC-driven wake instead of a
+ * k_sleep.
  */
 #define SAMPLE_LOOP_INTERVAL_MS   200U
-#define HEARTBEAT_TOGGLE_EVERY    5U
 
 LOG_MODULE_REGISTER(main, LOG_LEVEL_INF);
 
@@ -249,6 +246,13 @@ static void button_dispatch_thread(void *a, void *b, void *c)
 		case BUTTON_PRESS_SHORT:
 			LOG_INF("button short-press (%u ms) — joining", duration);
 			led_request(LED_PATTERN_BUTTON_ACK, LED_PRIO_BUTTON_ACK);
+			/* Let the 100 ms white ack render before start_join
+			 * requests JOINING at higher priority and preempts it.
+			 * Without this delay the ack is dropped within
+			 * microseconds and the user gets no feedback that the
+			 * press was heard.
+			 */
+			k_sleep(K_MSEC(100));
 			zigbee_app_start_join();
 			break;
 		case BUTTON_PRESS_LONG:
@@ -511,8 +515,6 @@ int main(void)
 		}
 	}
 
-	uint32_t heartbeat_counter = 0;
-
 	/* Publish the just-restored total once so Z2M sees a live
 	 * value on the very first read, even before the first pulse
 	 * lands or the 5-min report tick fires. Also arm the 5-min
@@ -574,11 +576,6 @@ int main(void)
 				LOG_INF("persisted accumulator_total=%llu",
 					(unsigned long long)total);
 			}
-		}
-
-		if (++heartbeat_counter >= HEARTBEAT_TOGGLE_EVERY) {
-			gpio_pin_toggle_dt(&led);
-			heartbeat_counter = 0;
 		}
 
 		k_sleep(K_MSEC(SAMPLE_LOOP_INTERVAL_MS));
