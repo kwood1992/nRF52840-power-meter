@@ -30,7 +30,6 @@ static enum led_pattern_id rendered = LED_PATTERN_NONE;
 static bool     joining_phase_on;
 static uint32_t join_fail_ticks_remaining;
 static uint32_t erase_confirm_ticks_remaining;
-static bool     identify_phase_on;
 /* FATAL renderer state — see led_request_fatal in led_controller.h for
  * the flash-count → failure-site mapping. `fatal_flash_count` is 1..5.
  * `fatal_phase_index` counts modulo 2 * flash_count during the pre-
@@ -65,12 +64,6 @@ static K_WORK_DELAYABLE_DEFINE(tick_work, tick_handler);
  */
 #define ERASE_CONFIRM_HALF_PERIOD_MS 150
 #define ERASE_CONFIRM_TICKS          7
-/* Magenta = red + blue simultaneously. Chosen deliberately to avoid
- * collision with any other pattern's colour (#31): red alone reads as
- * fault/reset, green alone reads as joined, blue alone reads as
- * joining, white reads as button-ack — magenta is unambiguous.
- */
-#define IDENTIFY_HALF_PERIOD_MS      200
 /* Fatal pattern shape: N pulses of 100 ms on with 100 ms off between
  * them, then a long tail-off that stretches the cycle to 5 s total.
  * Keeps duty ≤ 10 % for every N in 1..5 (worst case N=5 → 500 ms on
@@ -142,17 +135,6 @@ static void render_start_locked(enum led_pattern_id pattern)
 		 * path's transition into the erase confirm pattern).
 		 */
 		set_leds_rgb(1, 0, 0);
-		break;
-
-	case LED_PATTERN_IDENTIFY:
-		/* Continuous 200/200 ms magenta blink. Runs until the
-		 * ZCL identify duration elapses (coordinator sends
-		 * cancel with bufid == NULL, which becomes
-		 * led_cancel(IDENTIFY) in zigbee_app.c).
-		 */
-		identify_phase_on = true;
-		set_leds_rgb(1, 0, 1);
-		k_work_reschedule(&tick_work, K_MSEC(IDENTIFY_HALF_PERIOD_MS));
 		break;
 
 	case LED_PATTERN_ERASE_CONFIRM:
@@ -345,17 +327,6 @@ static void tick_handler(struct k_work *work)
 			k_work_reschedule(&tick_work,
 					  K_MSEC(ERASE_CONFIRM_HALF_PERIOD_MS));
 		}
-		break;
-
-	case LED_PATTERN_IDENTIFY:
-		/* Runs until the ZCL identify duration elapses on the
-		 * coordinator side (see zigbee_app.c identify_cb). The
-		 * tick just keeps toggling magenta.
-		 */
-		identify_phase_on = !identify_phase_on;
-		set_leds_rgb(identify_phase_on ? 1 : 0, 0,
-			     identify_phase_on ? 1 : 0);
-		k_work_reschedule(&tick_work, K_MSEC(IDENTIFY_HALF_PERIOD_MS));
 		break;
 
 	case LED_PATTERN_HEARTBEAT:

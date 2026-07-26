@@ -14,8 +14,8 @@
  * Foundation slice of issue #28: only LED_PATTERN_BUTTON_ACK is wired to
  * a concrete renderer (100 ms all-LEDs-on flash) in this file. The other
  * slots are dispatchable — a caller can request them, priority-arbitration
- * runs — but nothing renders yet. Follow-up issues #29-#33 land the
- * remaining renderers (join lifecycle, identify, long-press hold, fatal
+ * runs — but nothing renders yet. Follow-up issues #29, #30, #32, #33
+ * land the remaining renderers (join lifecycle, long-press hold, fatal
  * loops, boot / heartbeat flashes).
  *
  * The existing main.c LED users (heartbeat toggle, boot blink, erase
