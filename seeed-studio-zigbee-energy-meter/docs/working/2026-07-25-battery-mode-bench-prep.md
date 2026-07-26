@@ -176,6 +176,34 @@ Ordered by expected impact on average current:
    boot and only enable USB when present; otherwise leave the CDC-ACM
    driver out or held in suspend. Overlay change: make USB conditional
    on VBUS-sense GPIO.
+
+   **SPECULATIVE LAND (no measurements yet)** — implemented on the
+   `zigbee-usb-vbus-gate` branch on top of blocker 1. New Kconfig
+   under "USB CDC-ACM VBUS gate (issue #8 blocker 2)":
+   - `APP_USB_VBUS_GATE=y` (default) — read
+     `nrf_power_usbregstatus_vbusdet_get(NRF_POWER)` at boot; VBUS
+     absent skips `usb_enable()` + the 5 s DTR wait (folds in
+     blocker 7 below since the fix is identical). VBUS present
+     keeps the USB-dev flow.
+   - `prj.conf` sets `CONFIG_USB_DEVICE_INITIALIZE_AT_BOOT=n` to
+     stop Zephyr's SYS_INIT hook from calling `usb_enable()` before
+     we check VBUS. Overrides the `xiao_ble` board default of `y`.
+   - The CDC-ACM device_not_ready fatal-LED path only fires when we
+     WANT USB (VBUS present). On battery the CDC device object
+     stays idle and unclaimed.
+
+   Bench-verified end-to-end for the VBUS-absent path (XIAO powered
+   from Pi 3V3 via BAT pad, USB physically unplugged): fresh join
+   NOT_JOINED → IN_PROGRESS → SUCCESSFUL in ~24 s, pulse-to-Z2M
+   still works (100-pulse burst produced a metering report at
+   `energy=2.77 kWh`).
+
+   Not yet verified:
+   - VBUS-present path — needs someone at the bench to plug USB and
+     confirm CDC-ACM still enumerates and the DTR wait still fires
+     under Sequoia. `APP_USB_VBUS_GATE=n` in `dev.conf` is the
+     escape hatch if the VBUS reading is wrong.
+   - Current-draw delta (INA219 #35 required).
 3. **200 ms `k_sleep` polling loop** at `main.c:497` inside `while(1)`.
    Zephyr's tickless idle plus `k_sleep` DO enter System-ON sleep
    between wakes on nRF52, so this isn't as bad as it looks — the CPU
@@ -203,6 +231,11 @@ Ordered by expected impact on average current:
    Adds 5 s of boot-time CPU-on wake before Zigbee even starts. Not
    a steady-state issue but a first-boot / factory-reset cycle cost.
    Fix: gate on VBUS-present at boot, skip if on battery.
+
+   **FOLDED INTO BLOCKER 2** — the fix is literally the same VBUS
+   check, and the DTR wait can only usefully fire when USB is
+   attached, so gating them together made more sense than a
+   separate PR.
 8. **`CONFIG_PM=y` not set**. Zephyr's PM subsystem manages device
    power states and CPU idle states. On nRF52 the default `arch_idle`
    still enters System-ON, so this is a smaller lever than the ones

@@ -80,6 +80,33 @@ config APP_ZIGBEE_LONG_POLL_INTERVAL_MS
 
 endmenu
 
+menu "USB CDC-ACM VBUS gate (issue #8 blocker 2)"
+
+config APP_USB_VBUS_GATE
+	bool "Skip USB CDC-ACM init when running on battery (no VBUS)"
+	default y
+	help
+	  Reads the nRF52840 POWER.USBREGSTATUS.VBUSDETECT bit in main()
+	  before touching the USB stack. VBUS absent → skip
+	  usb_enable() and the 5 s wait_for_host_dtr_or_timeout entirely
+	  and continue straight into Zigbee bring-up. VBUS present →
+	  keep the current USB-dev flow (CDC-ACM console, 5 s DTR wait,
+	  serial log stream).
+
+	  The USB device stack is still linked in either way — we just
+	  don't start it. That keeps the code path identical to the
+	  USB-dev build when a cable is plugged in, at the cost of a
+	  few KB of unused .text on battery.
+
+	  Requires CONFIG_USB_DEVICE_INITIALIZE_AT_BOOT=n (also set in
+	  prj.conf) so Zephyr's SYS_INIT hook doesn't call usb_enable()
+	  before we get to check VBUS.
+
+	  Turn this off in dev.conf if you want the previous
+	  unconditional-USB behavior back.
+
+endmenu
+
 # Zephyr's Kconfig — pulls in board / driver / kernel options. Keep at
 # the bottom so our project options land in the menu tree above the
 # standard Zephyr tree, not buried under it.

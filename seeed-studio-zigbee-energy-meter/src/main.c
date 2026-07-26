@@ -8,6 +8,8 @@
 #include <zephyr/sys/atomic.h>
 #include <zephyr/usb/usb_device.h>
 
+#include <hal/nrf_power.h>
+
 #include "button_press_classifier.h"
 #include "hw_pulse_counter.h"
 #include "led_controller.h"
@@ -333,27 +335,46 @@ int main(void)
 
 	const struct device *const cdc = DEVICE_DT_GET(DT_CHOSEN(zephyr_console));
 
-	if (!device_is_ready(cdc)) {
-		/* Category 1 = CDC-ACM device_not_ready (see the flash-
-		 * count → failure-site mapping in led_controller.h).
-		 */
-		led_request_fatal(1);
-		while (1) {
-			k_sleep(K_FOREVER);
-		}
-	}
-
-	/* NCS 2.9.2's USB stack registers a SYS_INIT hook that calls
-	 * usb_enable() before main() runs, so a second call here typically
-	 * returns -EALREADY. Treat that as success; only bail on a real error.
+	/*
+	 * VBUS gate (#8 blocker 2). Check POWER.USBREGSTATUS.VBUSDETECT
+	 * before touching the USB stack. VBUS absent → we're on battery,
+	 * skip USB entirely (usb_enable + DTR wait). VBUS present → keep
+	 * the USB-dev flow.
+	 *
+	 * If APP_USB_VBUS_GATE is disabled (dev override), force-enable
+	 * USB unconditionally like the pre-blocker-2 behavior did.
 	 */
-	int usb_err = usb_enable(NULL);
+	const bool vbus_present = IS_ENABLED(CONFIG_APP_USB_VBUS_GATE)
+		? nrf_power_usbregstatus_vbusdet_get(NRF_POWER)
+		: true;
 
-	if (usb_err != 0 && usb_err != -EALREADY) {
-		/* Category 2 = usb_enable failed. */
-		led_request_fatal(2);
-		while (1) {
-			k_sleep(K_FOREVER);
+	if (vbus_present) {
+		if (!device_is_ready(cdc)) {
+			/* Category 1 = CDC-ACM device_not_ready (see the
+			 * flash-count → failure-site mapping in
+			 * led_controller.h). Only fatal when we WANT USB —
+			 * on battery the CDC device just sits idle.
+			 */
+			led_request_fatal(1);
+			while (1) {
+				k_sleep(K_FOREVER);
+			}
+		}
+
+		/* prj.conf sets CONFIG_USB_DEVICE_INITIALIZE_AT_BOOT=n so no
+		 * SYS_INIT hook races ahead of us — this is the sole caller
+		 * of usb_enable(). -EALREADY should not appear anymore, but
+		 * still tolerated in case a future overlay flips the auto-
+		 * init back on.
+		 */
+		int usb_err = usb_enable(NULL);
+
+		if (usb_err != 0 && usb_err != -EALREADY) {
+			/* Category 2 = usb_enable failed. */
+			led_request_fatal(2);
+			while (1) {
+				k_sleep(K_FOREVER);
+			}
 		}
 	}
 
@@ -477,9 +498,13 @@ int main(void)
 	}
 
 	/* Hold up to 5 s for a serial monitor to attach so early logs are
-	 * visible; then proceed regardless.
+	 * visible; then proceed regardless. Skipped on battery — no host
+	 * will ever assert DTR, so waiting 5 s is pure wasted wake time
+	 * (#8 blocker 2, wait_for_host_dtr subpoint).
 	 */
-	wait_for_host_dtr_or_timeout(cdc, 5000);
+	if (vbus_present) {
+		wait_for_host_dtr_or_timeout(cdc, 5000);
+	}
 
 	LOG_INF("XIAO Zigbee Energy Meter booted");
 	LOG_INF("pulse counting: phototransistor on A0 (AIN0) → LPCOMP → PPI → TIMER2, "
