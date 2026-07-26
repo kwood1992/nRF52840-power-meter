@@ -1,0 +1,35 @@
+mainmenu "Zigbee Energy Meter"
+
+menu "LED signals (issue #33)"
+
+config APP_BOOT_FLASH
+	bool "Emit a 100 ms white flash on boot"
+	default n
+	help
+	  When enabled, main() requests a single 100 ms all-LEDs-on
+	  ("white") flash after led_controller_init() returns — the
+	  same shape as the button-ack pattern from #28.
+
+	  Silent-by-default preserves the "no LED except for user
+	  gestures" contract on battery. Turn on via dev.conf for the
+	  USB bench workflow.
+
+config APP_REPORT_HEARTBEAT
+	bool "Green flash on each 5-min metering report tick"
+	default n
+	help
+	  When enabled, metering_report_work_handler requests a single
+	  50 ms green flash on every 5-minute report cadence. Green is
+	  chosen deliberately: red would imply fault, blue would collide
+	  with the joining pattern; green reads as "healthy tick".
+
+	  Silent by default so battery deployments don't emit a
+	  visible pulse every 5 min. Turn on via dev.conf when watching
+	  the reporting cadence on the bench.
+
+endmenu
+
+# Zephyr's Kconfig — pulls in board / driver / kernel options. Keep at
+# the bottom so our project options land in the menu tree above the
+# standard Zephyr tree, not buried under it.
+source "Kconfig.zephyr"
