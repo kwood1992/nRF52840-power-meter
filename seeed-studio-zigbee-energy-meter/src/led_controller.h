@@ -1,6 +1,8 @@
 #ifndef LED_CONTROLLER_H
 #define LED_CONTROLLER_H
 
+#include <stdint.h>
+
 #include "led_priority.h"
 
 /*
@@ -28,5 +30,25 @@ int led_controller_init(void);
 
 void led_request(enum led_pattern_id pattern, enum led_priority prio);
 void led_cancel(enum led_pattern_id pattern);
+
+/*
+ * Request the top-priority fatal-error pattern with `flash_count` red
+ * flashes per 5-second cycle at ~10% duty (#32). Clamped to 1..5.
+ *
+ * Flash-count → failure-site mapping (kept in main.c's fatal branches;
+ * updating this table means updating the mapping there too):
+ *   1 = CDC-ACM device_not_ready
+ *   2 = usb_enable failed
+ *   3 = user_button_configure failed
+ *   4 = hw_pulse_counter_init failed
+ *   5 = user_button_arm_irq failed
+ *
+ * After 10 minutes of continuous flashing, the pattern collapses to a
+ * single 100 ms flash every 10 s — a broken field device with fresh
+ * batteries needs the failure indicator to survive long enough to be
+ * noticed on a maintenance visit weeks later, and 10% duty over
+ * fortnights burns the pack.
+ */
+void led_request_fatal(uint32_t flash_count);
 
 #endif /* LED_CONTROLLER_H */
