@@ -10,6 +10,7 @@
 
 #include "button_press_classifier.h"
 #include "hw_pulse_counter.h"
+#include "led_controller.h"
 #include "nvs_store.h"
 #include "persist_policy.h"
 #include "pulse_accumulator.h"
@@ -216,6 +217,7 @@ static void button_dispatch_thread(void *a, void *b, void *c)
 		switch (kind) {
 		case BUTTON_PRESS_SHORT:
 			LOG_INF("button short-press (%u ms) — joining", duration);
+			led_request(LED_PATTERN_BUTTON_ACK, LED_PRIO_BUTTON_ACK);
 			zigbee_app_start_join();
 			break;
 		case BUTTON_PRESS_LONG:
@@ -303,6 +305,19 @@ int main(void)
 	if (user_button_configure()) {
 		while (1) {
 			blink(1, 500, 500);
+		}
+	}
+
+	if (led_controller_init()) {
+		/* Distinct rate from the other setup fatals so the bench
+		 * observer can tell which init failed. This whole ladder
+		 * of tight blink loops is refactored into led_request()
+		 * calls in follow-up #32; until then, direct blink() is
+		 * the only path that works when led_controller itself
+		 * is the thing that failed.
+		 */
+		while (1) {
+			blink(1, 750, 750);
 		}
 	}
 

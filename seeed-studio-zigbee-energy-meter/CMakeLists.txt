@@ -13,6 +13,8 @@ target_sources(app PRIVATE
 	src/main.c
 	src/button_press_classifier.c
 	src/hw_pulse_counter.c
+	src/led_controller.c
+	src/led_priority.c
 	src/metering_scale.c
 	src/nvs_store.c
 	src/persist_policy.c
