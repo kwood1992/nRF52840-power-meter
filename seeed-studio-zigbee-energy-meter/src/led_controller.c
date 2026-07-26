@@ -29,6 +29,7 @@ static enum led_pattern_id rendered = LED_PATTERN_NONE;
  */
 static bool     joining_phase_on;
 static uint32_t join_fail_ticks_remaining;
+static uint32_t erase_confirm_ticks_remaining;
 
 /* Single shared tick — only one pattern renders at a time, so one work
  * item is enough. Idle transitions cancel the work; the workqueue's
@@ -46,6 +47,14 @@ static K_WORK_DELAYABLE_DEFINE(tick_work, tick_handler);
  * ending at the natural "all dark" resting state before cancelling.
  */
 #define JOIN_FAIL_TICKS        5
+/* 4 blinks — matches the pre-#30 direct blink(4, 150, 150) call and the
+ * boot-hold erase confirmation the user already recognises. 4 on-phases
+ * + 4 off-phases = 8 total; the initial "red on" at render start is
+ * one of them, so seven ticks toggle through the remaining seven phase
+ * transitions.
+ */
+#define ERASE_CONFIRM_HALF_PERIOD_MS 150
+#define ERASE_CONFIRM_TICKS          7
 
 static void set_leds_rgb(int r, int g, int b)
 {
@@ -88,6 +97,21 @@ static void render_start_locked(enum led_pattern_id pattern)
 		join_fail_ticks_remaining = JOIN_FAIL_TICKS;
 		set_leds_rgb(1, 0, 0);
 		k_work_reschedule(&tick_work, K_MSEC(JOIN_FAIL_HALF_PERIOD_MS));
+		break;
+
+	case LED_PATTERN_LONG_PRESS_HOLD:
+		/* Solid red — no tick needed. Held until the caller
+		 * cancels (rising edge in the button ISR, or the boot
+		 * path's transition into the erase confirm pattern).
+		 */
+		set_leds_rgb(1, 0, 0);
+		break;
+
+	case LED_PATTERN_ERASE_CONFIRM:
+		erase_confirm_ticks_remaining = ERASE_CONFIRM_TICKS;
+		set_leds_rgb(1, 0, 0);
+		k_work_reschedule(&tick_work,
+				  K_MSEC(ERASE_CONFIRM_HALF_PERIOD_MS));
 		break;
 
 	case LED_PATTERN_NONE:
@@ -221,6 +245,20 @@ static void tick_handler(struct k_work *work)
 			join_fail_ticks_remaining--;
 			k_work_reschedule(&tick_work,
 					  K_MSEC(JOIN_FAIL_HALF_PERIOD_MS));
+		}
+		break;
+
+	case LED_PATTERN_ERASE_CONFIRM:
+		if (erase_confirm_ticks_remaining == 0) {
+			led_priority_cancel(&state, LED_PATTERN_ERASE_CONFIRM);
+			reselect_if_changed_locked();
+		} else {
+			bool red_on = (erase_confirm_ticks_remaining % 2) == 0;
+
+			set_leds_rgb(red_on ? 1 : 0, 0, 0);
+			erase_confirm_ticks_remaining--;
+			k_work_reschedule(&tick_work,
+					  K_MSEC(ERASE_CONFIRM_HALF_PERIOD_MS));
 		}
 		break;
 
