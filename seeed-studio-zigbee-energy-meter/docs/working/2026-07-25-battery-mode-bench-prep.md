@@ -63,6 +63,57 @@ Use Energizer Ultimate Lithium AAA's ~1200 mAh capacity at low-drain
 discharge (their datasheet's 25 mA constant-drain figure — we're way
 below that so it's the right end of the curve).
 
+## Interim measurement path (INA219 on Pi, pre-PPK2)
+
+For blockers #1–#4 below the average current is still in the mA range,
+which is well within an INA219 breakout's ~10 µA resolution floor.
+Cheaper and lets the tuning loop run off the Pi rig we already have
+(SWD flash from #34 + I²C measurement here) without waiting on PPK2
+availability. Tracked in #35.
+
+Board: [Adafruit ADA904 via Core Electronics](https://core-electronics.com.au/ina219-high-side-dc-current-sensor-breakout-26v-3-2a-max.html)
+(~$17 AUD, STEMMA QT + screw terminals pre-soldered; 0.1" header loose).
+Optional [Qwiic-to-jumper cable](https://core-electronics.com.au/qwiic-cable-breadboard-jumper-4-pin.html)
+avoids soldering the header entirely.
+
+The INA219 sits in two circuits at once. The XIAO does NOT wire to the
+INA219's logic side — only its power line passes through the on-board
+shunt.
+
+**Circuit 1 — Pi ↔ INA219 (logic bus, via header pins OR STEMMA QT)**
+
+| INA219 | Pi header pin | Function |
+| --- | --- | --- |
+| VCC | Pin 1 (3V3) | INA219 chip logic power |
+| GND | Pin 6 (GND) | Shared ground (already there for SWD harness) |
+| SDA | Pin 3 (GPIO 2 / I²C1 SDA) | I²C data |
+| SCL | Pin 5 (GPIO 3 / I²C1 SCL) | I²C clock |
+
+Verify with `i2cdetect -y 1` on the Pi (default addr `0x40`) after
+enabling I²C via `raspi-config`.
+
+**Circuit 2 — Pi 3V3 → XIAO BAT via INA219 shunt (power path, screw terminals)**
+
+```
+Pi pin 1 (3V3) ──22 AWG──> INA219 Vin+ (screw terminal)
+                                │
+                          [0.1 Ω shunt]
+                                │
+                           INA219 Vin- (screw terminal) ──22 AWG──> XIAO BAT pad
+```
+
+Use the screw terminals here (not the header's Vin+/Vin- pins) — same
+nets electrically, but the terminals clamp thicker wire and let you
+swap the load-side wire (Pi 3V3 → bench PSU → actual AAA cells)
+without soldering each time.
+
+Do NOT plug USB into the XIAO while this shunt is powered from the Pi
+3V3 rail. Two supplies in parallel with different regulators — remove
+one before adding the other.
+
+When post-tuning sleep current drops below ~50 µA, INA219 results become
+unreliable and we switch to PPK2 for the final numbers that close #8.
+
 ## Known sleep-blockers in today's firmware
 
 Read this alongside the CSVs — they explain the "expected today"
