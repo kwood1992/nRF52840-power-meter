@@ -295,6 +295,14 @@ static void metering_report_work_handler(struct k_work *work)
 
 	LOG_INF("metering report tick: CurrentSummationDelivered=%llu",
 		(unsigned long long)total);
+
+	/* Optional 50 ms green flash so a bench user watching the
+	 * device can see the 5-min report cadence at a glance (#33).
+	 * Silent by default; turned on by dev.conf.
+	 */
+#if IS_ENABLED(CONFIG_APP_REPORT_HEARTBEAT)
+	led_request(LED_PATTERN_HEARTBEAT, LED_PRIO_HEARTBEAT);
+#endif
 	/* Force an explicit report frame on the 5-min tick. Without
 	 * this the ZBOSS reporting engine only emits when the delta
 	 * since last report crosses `reportable_change` (default 100
@@ -311,9 +319,13 @@ static void metering_report_work_handler(struct k_work *work)
 
 int main(void)
 {
-	/* Boot indicator: 4 quick blinks means main() reached. */
+	/* Configure the red LED for its remaining direct-poke consumers
+	 * (the 1 Hz sample-loop toggle and the "led_controller_init
+	 * failed" fatal fallback). led_controller_init also reconfigures
+	 * this pin along with green and blue; the double-configure is
+	 * harmless.
+	 */
 	gpio_pin_configure_dt(&led, GPIO_OUTPUT_INACTIVE);
-	blink(4, 100, 100);
 
 	const struct device *const cdc = DEVICE_DT_GET(DT_CHOSEN(zephyr_console));
 
@@ -361,6 +373,15 @@ int main(void)
 			blink(1, 750, 750);
 		}
 	}
+
+	/* Optional 100 ms white boot flash (#33). Silent by default so
+	 * battery deployments emit no LED at boot; USB dev builds turn
+	 * this on via dev.conf. Reuses BUTTON_ACK's renderer — same
+	 * shape (all-LEDs-on, 100 ms one-shot).
+	 */
+#if IS_ENABLED(CONFIG_APP_BOOT_FLASH)
+	led_request(LED_PATTERN_BUTTON_ACK, LED_PRIO_BUTTON_ACK);
+#endif
 
 	int hw_err = hw_pulse_counter_init();
 

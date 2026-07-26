@@ -86,6 +86,12 @@ static K_WORK_DELAYABLE_DEFINE(tick_work, tick_handler);
 #define FATAL_COLLAPSE_AFTER_MS      (10 * 60 * 1000)
 #define FATAL_COLLAPSE_ON_MS         100
 #define FATAL_COLLAPSE_OFF_MS        9900
+/* Report-heartbeat one-shot (#33). Same shape as BUTTON_ACK but green
+ * so it reads distinctly from a fault/reset (red) or a joining pulse
+ * (blue). Callers gate the request behind CONFIG_APP_REPORT_HEARTBEAT
+ * so battery deployments stay silent.
+ */
+#define HEARTBEAT_ON_MS              50
 
 static void set_leds_rgb(int r, int g, int b)
 {
@@ -167,6 +173,12 @@ static void render_start_locked(enum led_pattern_id pattern)
 		fatal_phase_index = 0;
 		set_leds_rgb(1, 0, 0);
 		k_work_reschedule(&tick_work, K_MSEC(FATAL_PULSE_ON_MS));
+		break;
+
+	case LED_PATTERN_HEARTBEAT:
+		/* 50 ms green one-shot. Tick handler cancels. */
+		set_leds_rgb(0, 1, 0);
+		k_work_reschedule(&tick_work, K_MSEC(HEARTBEAT_ON_MS));
 		break;
 
 	case LED_PATTERN_NONE:
@@ -344,6 +356,11 @@ static void tick_handler(struct k_work *work)
 		set_leds_rgb(identify_phase_on ? 1 : 0, 0,
 			     identify_phase_on ? 1 : 0);
 		k_work_reschedule(&tick_work, K_MSEC(IDENTIFY_HALF_PERIOD_MS));
+		break;
+
+	case LED_PATTERN_HEARTBEAT:
+		led_priority_cancel(&state, LED_PATTERN_HEARTBEAT);
+		reselect_if_changed_locked();
 		break;
 
 	case LED_PATTERN_FATAL: {
