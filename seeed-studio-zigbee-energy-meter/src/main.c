@@ -57,16 +57,14 @@
 
 /* Boot-hold accumulator erase: sw0 held continuously for this long at
  * boot wipes the NVS-persisted total to 0. Covers the redeployment case
- * (moving the sensor to a different physical meter). Confirmation is
- * BOOT_ERASE_BLINK_COUNT rapid red-LED blinks so the user has visible
- * feedback without needing serial. See
+ * (moving the sensor to a different physical meter). Confirmation is a
+ * 4× red blink pattern requested through led_controller — same
+ * ERASE_CONFIRM pattern the runtime factory-reset path uses (#30). See
  * docs/working/2026-07-24-boot-hold-erase.md for the gesture rationale
  * and its relationship to the post-boot short/long-press bands.
  */
 #define BOOT_ERASE_HOLD_MS       3000U
 #define BOOT_ERASE_POLL_MS       10U
-#define BOOT_ERASE_BLINK_COUNT   4
-#define BOOT_ERASE_BLINK_MS      150
 
 /* Wake cadence for the sample / persist / heartbeat loop. Pulse counting
  * is now hardware (LPCOMP + PPI + TIMER2) so this loop no longer needs
@@ -101,6 +99,23 @@ static struct button_press_classifier button_classifier;
 static K_SEM_DEFINE(button_release_sem, 0, 1);
 static atomic_t button_press_duration_ms = ATOMIC_INIT(0);
 
+/* Fires 3 s after the button falling edge if the press is still held.
+ * Requests LONG_PRESS_HOLD so the LED lights solid red the moment the
+ * hold crosses the factory-reset threshold — closes the "am I past 3 s
+ * yet?" gap that had the user releasing in the 1–3 s dead zone or
+ * overshooting without feedback (#30). Cancelled on the rising edge
+ * whether the hold made it to 3 s or not.
+ */
+static void long_press_hold_arm_handler(struct k_work *work);
+static K_WORK_DELAYABLE_DEFINE(long_press_hold_arm,
+			       long_press_hold_arm_handler);
+
+static void long_press_hold_arm_handler(struct k_work *work)
+{
+	ARG_UNUSED(work);
+	led_request(LED_PATTERN_LONG_PRESS_HOLD, LED_PRIO_LONG_PRESS_HOLD);
+}
+
 static void user_button_isr(const struct device *dev,
 			    struct gpio_callback *cb,
 			    uint32_t pins)
@@ -113,13 +128,23 @@ static void user_button_isr(const struct device *dev,
 	int value = gpio_pin_get_dt(&user_button);
 
 	if (value == 1) {
-		/* Active — falling edge on the pin, i.e. press start. */
-		button_press_start_ms = now;
-	} else {
-		/* Rising edge — press release. Publish the duration
-		 * for the dispatch thread to classify. Keeping ZBOSS
-		 * calls off the IRQ path.
+		/* Active — falling edge on the pin, i.e. press start.
+		 * Arm the 3 s "held long enough for factory-reset" LED
+		 * so the user gets feedback the moment they cross the
+		 * threshold (#30).
 		 */
+		button_press_start_ms = now;
+		k_work_reschedule(&long_press_hold_arm, K_MSEC(BUTTON_LONG_MIN_MS));
+	} else {
+		/* Rising edge — press release. Cancel the pending
+		 * long-press-hold LED arm and turn off any LED it may
+		 * have already lit. Then publish the duration for the
+		 * dispatch thread to classify, keeping ZBOSS calls off
+		 * the IRQ path.
+		 */
+		k_work_cancel_delayable(&long_press_hold_arm);
+		led_cancel(LED_PATTERN_LONG_PRESS_HOLD);
+
 		int64_t duration = now - button_press_start_ms;
 
 		if (duration < 0) {
@@ -198,6 +223,12 @@ static bool boot_button_held(uint32_t threshold_ms)
 		k_sleep(K_MSEC(BOOT_ERASE_POLL_MS));
 		elapsed += BOOT_ERASE_POLL_MS;
 	}
+	/* Hold crossed the threshold — commit to the erase visually so
+	 * a still-pressing user gets the "committed" signal (#30). The
+	 * caller cancels LONG_PRESS_HOLD before transitioning to
+	 * ERASE_CONFIRM.
+	 */
+	led_request(LED_PATTERN_LONG_PRESS_HOLD, LED_PRIO_LONG_PRESS_HOLD);
 	return true;
 }
 
@@ -223,6 +254,8 @@ static void button_dispatch_thread(void *a, void *b, void *c)
 		case BUTTON_PRESS_LONG:
 			LOG_WRN("button long-press (%u ms) — factory reset", duration);
 			zigbee_app_factory_reset();
+			led_request(LED_PATTERN_ERASE_CONFIRM,
+				    LED_PRIO_ERASE_CONFIRM);
 			break;
 		case BUTTON_PRESS_NEITHER:
 			LOG_INF("button press (%u ms) ignored — outside short/long band",
@@ -376,14 +409,20 @@ int main(void)
 		if (boot_button_held(BOOT_ERASE_HOLD_MS)) {
 			int erase_err = nvs_store_save_total(0);
 
+			/* Regardless of erase outcome, the solid-red
+			 * LONG_PRESS_HOLD indicator has done its job —
+			 * turn it off so the ERASE_CONFIRM pattern (or
+			 * nothing, on failure) can render.
+			 */
+			led_cancel(LED_PATTERN_LONG_PRESS_HOLD);
+
 			if (erase_err) {
 				LOG_ERR("boot-hold accumulator erase failed: %d",
 					erase_err);
 			} else {
 				LOG_INF("accumulator erased by boot-hold");
-				blink(BOOT_ERASE_BLINK_COUNT,
-				      BOOT_ERASE_BLINK_MS,
-				      BOOT_ERASE_BLINK_MS);
+				led_request(LED_PATTERN_ERASE_CONFIRM,
+					    LED_PRIO_ERASE_CONFIRM);
 			}
 		}
 
