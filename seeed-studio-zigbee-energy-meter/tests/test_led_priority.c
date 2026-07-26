@@ -182,6 +182,42 @@ static void test_invalid_pattern_is_rejected(void)
 	assert(led_priority_selected(&s) == LED_PATTERN_NONE);
 }
 
+static void test_joining_preempts_button_ack(void)
+{
+	/* From issue #29 AC: JOINING must preempt BUTTON_ACK. Named explicitly
+	 * (redundant with test_priority_table_ordering, but the AC calls it
+	 * out and having a dedicated case makes regressions obvious).
+	 */
+	struct led_priority_state s;
+
+	led_priority_init(&s);
+	led_priority_request(&s, LED_PATTERN_BUTTON_ACK, LED_PRIO_BUTTON_ACK);
+
+	assert(led_priority_request(&s, LED_PATTERN_JOINING,
+				    LED_PRIO_JOINING) == true);
+	assert(led_priority_selected(&s) == LED_PATTERN_JOINING);
+}
+
+static void test_joining_preempted_by_long_press_hold_and_identify(void)
+{
+	/* From issue #29 AC: JOINING must be preempted by LONG_PRESS_HOLD
+	 * (prio 2) and IDENTIFY (prio 3).
+	 */
+	struct led_priority_state s;
+
+	led_priority_init(&s);
+	led_priority_request(&s, LED_PATTERN_JOINING, LED_PRIO_JOINING);
+	assert(led_priority_request(&s, LED_PATTERN_LONG_PRESS_HOLD,
+				    LED_PRIO_LONG_PRESS_HOLD) == true);
+	assert(led_priority_selected(&s) == LED_PATTERN_LONG_PRESS_HOLD);
+
+	led_priority_init(&s);
+	led_priority_request(&s, LED_PATTERN_JOINING, LED_PRIO_JOINING);
+	assert(led_priority_request(&s, LED_PATTERN_IDENTIFY,
+				    LED_PRIO_IDENTIFY) == true);
+	assert(led_priority_selected(&s) == LED_PATTERN_IDENTIFY);
+}
+
 static void test_re_request_same_pattern_keeps_stronger_prio(void)
 {
 	struct led_priority_state s;
@@ -222,6 +258,8 @@ int main(void)
 	RUN(test_button_ack_preempted_by_all_higher_slots);
 	RUN(test_button_ack_preempts_heartbeat);
 	RUN(test_invalid_pattern_is_rejected);
+	RUN(test_joining_preempts_button_ack);
+	RUN(test_joining_preempted_by_long_press_hold_and_identify);
 	RUN(test_re_request_same_pattern_keeps_stronger_prio);
 	printf("all tests passed\n");
 	return 0;
