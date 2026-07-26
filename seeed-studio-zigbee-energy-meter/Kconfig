@@ -29,6 +29,57 @@ config APP_REPORT_HEARTBEAT
 
 endmenu
 
+menu "Zigbee sleepy-ED behaviour (issue #8 blocker 1)"
+
+config APP_ZIGBEE_SLEEPY_ED
+	bool "Enable rx-off-when-idle sleepy end-device behaviour"
+	default y
+	help
+	  Runtime toggle for zb_set_rx_on_when_idle(). CONFIG_ZIGBEE_ROLE_END_DEVICE
+	  fixes the MAC-layer role; this flag controls whether the radio actually
+	  sleeps between parent polls.
+
+	  y (default) — sleepy: radio dark between polls. Required for the
+	  battery target (average current in the µA range).
+
+	  n — rx-on-when-idle: radio always live. Burns ~5 mA continuously,
+	  but Z2M's ZDO interview (Read Basic.manufacturerName / .modelId)
+	  cannot time out. Escape hatch if the sleepy + turbo-poll join
+	  window is not enough to cover Z2M's read deadline in the field.
+
+config APP_ZIGBEE_JOIN_TURBO_POLL_MS
+	int "Turbo-poll window after successful join (ms)"
+	default 30000
+	depends on APP_ZIGBEE_SLEEPY_ED
+	help
+	  On ZB_BDB_SIGNAL_STEERING (status=RET_OK), start
+	  zb_zdo_pim_start_turbo_poll_continuous for this many milliseconds.
+	  During the window ZBOSS polls the parent every ~100 ms, which keeps
+	  Z2M's interview reads responsive. When the timeout expires ZBOSS
+	  automatically reverts to the Long Poll interval set below.
+
+	  30 s covers the typical Z2M interview (~5-15 s) with generous
+	  margin. Tighten once measurements say the interview always finishes
+	  faster; loosen if a saturated coordinator makes reads slower.
+
+config APP_ZIGBEE_LONG_POLL_INTERVAL_MS
+	int "Long-poll interval after interview window (ms)"
+	default 60000
+	depends on APP_ZIGBEE_SLEEPY_ED
+	help
+	  Passed to zb_zdo_pim_set_long_poll_interval() after
+	  ZB_BDB_SIGNAL_STEERING succeeds. Sets the steady-state parent-poll
+	  cadence — every poll wakes the radio for a MAC ACK exchange
+	  (~3 ms, ~10 mA), so this is a direct multiplier on average
+	  current. 60 s picked as a conservative starting point: slow enough
+	  to hit the µA-range sleep target, fast enough that any Z2M command
+	  addressed to us has bounded downlink latency.
+
+	  Not tunable below the ZBOSS floor ZB_PIM_MINIMUM_LONG_POLL_INTERVAL_IN_QS
+	  (1 s). Not useful above ZB_PIM_MAXIMUM_LONG_POLL_INTERVAL (hours).
+
+endmenu
+
 # Zephyr's Kconfig — pulls in board / driver / kernel options. Keep at
 # the bottom so our project options land in the menu tree above the
 # standard Zephyr tree, not buried under it.

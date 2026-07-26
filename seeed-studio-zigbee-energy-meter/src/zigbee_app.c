@@ -154,6 +154,31 @@ static bool endpoint_registered;
 static atomic_t user_join_in_flight = ATOMIC_INIT(0);
 
 /*
+ * After a successful join (steering) or a successful re-attach
+ * (device_reboot), set the steady-state long-poll interval and start
+ * turbo poll for the Z2M interview window. Turbo poll runs at ~100 ms
+ * cadence for its timeout and auto-reverts to the long-poll interval
+ * on expiry — no separate leave callback required.
+ *
+ * ZBOSS API note: zb_zdo_pim_set_long_poll_interval is only valid
+ * AFTER join; during steering the interval snaps back to the default
+ * (5 s). That's why this runs from the signal handler, not init.
+ */
+static void apply_sleepy_poll_intervals_if_joined(zb_ret_t status)
+{
+	if (!IS_ENABLED(CONFIG_APP_ZIGBEE_SLEEPY_ED) || status != RET_OK) {
+		return;
+	}
+	zb_zdo_pim_set_long_poll_interval(
+		CONFIG_APP_ZIGBEE_LONG_POLL_INTERVAL_MS);
+	zb_zdo_pim_start_turbo_poll_continuous(
+		CONFIG_APP_ZIGBEE_JOIN_TURBO_POLL_MS);
+	LOG_INF("sleepy ED: long_poll=%d ms, turbo_poll_window=%d ms",
+		CONFIG_APP_ZIGBEE_LONG_POLL_INTERVAL_MS,
+		CONFIG_APP_ZIGBEE_JOIN_TURBO_POLL_MS);
+}
+
+/*
  * ZBOSS calls this from its main loop on every stack event.
  *
  * ALWAYS delegate to `zigbee_default_signal_handler` regardless of
@@ -189,6 +214,20 @@ void zboss_signal_handler(zb_bufid_t bufid)
 					    LED_PRIO_JOIN_FAIL);
 			}
 		}
+		apply_sleepy_poll_intervals_if_joined(status);
+		break;
+
+	case ZB_BDB_SIGNAL_DEVICE_REBOOT:
+		/* Reboot that re-attached to the saved network in NVRAM (no
+		 * fresh steering). Sleepy poll intervals aren't persisted, so
+		 * re-apply them here. No LED — there was no user-initiated
+		 * join event on this path.
+		 */
+		if (status == RET_OK) {
+			LOG_INF("device reboot: reattached to saved network");
+			joined = true;
+		}
+		apply_sleepy_poll_intervals_if_joined(status);
 		break;
 
 	case ZB_ZDO_SIGNAL_LEAVE:
@@ -301,29 +340,33 @@ int zigbee_app_init(void)
 	endpoint_registered = true;
 
 	/*
-	 * Sleepy-behavior is DISABLED for the USB-dev phase.
+	 * Sleepy-ED behaviour (issue #8 blocker 1).
 	 *
-	 * `CONFIG_ZIGBEE_ROLE_END_DEVICE` (compile-time) keeps us in the
-	 * ZED role at the MAC layer. What we turn off here at runtime is
-	 * `zb_set_rx_on_when_idle(FALSE)` — the "radio dark between
-	 * polls" mode that unlocks µA-range sleep current on AAAs.
+	 * CONFIG_ZIGBEE_ROLE_END_DEVICE fixes the MAC-layer role;
+	 * zb_set_rx_on_when_idle() (called via zigbee_configure_sleepy_behavior)
+	 * is the runtime flag that actually gates whether the radio sleeps
+	 * between parent polls. rx-on-when-idle=TRUE burns ~5 mA average —
+	 * a non-starter for the AAA target — so we default to sleepy=true
+	 * and cover Z2M's interview deadline with a turbo-poll window
+	 * (see zboss_signal_handler for ZB_BDB_SIGNAL_STEERING).
 	 *
-	 * Reason to disable it TODAY: Z2M's ZCL Read of Basic.
-	 * manufacturerName / .modelId during interview times out on a
-	 * sleepy ED because the default parent-poll cadence (~7.5 s) is
-	 * slower than Z2M's read deadline. The result is
-	 * `interview_state: FAILED — can not get active endpoints` on
-	 * a fresh join, and Z2M never auto-configures reporting on
-	 * CurrentSummationDelivered.
+	 * dev.conf can flip APP_ZIGBEE_SLEEPY_ED=n as an escape hatch if the
+	 * turbo-poll window ever fails to cover a slow Z2M read — that path
+	 * is what the previous USB-dev build used unconditionally.
 	 *
-	 * Rx-on-when-idle=TRUE burns ~5 mA average — a non-starter for
-	 * the multi-year AAA target — but fine for the USB-dev phase
-	 * we're in (see project overview memory). Turning it back on
-	 * lands in #6/#7 alongside the LPCOMP pulse chain and real
-	 * power measurement; those change the wake model wholesale
-	 * so there's no point half-implementing sleep here.
+	 * ed_timeout / keepalive_timeout come from the R23 light_switch
+	 * reference sample (samples/light_switch/src/main.c:837-838). Without
+	 * a large aging timeout, the parent evicts a sleepy child before the
+	 * next long-poll cycle — the practical failure mode is a device that
+	 * joins once, drops off after ~7.5 s (ZB_TIME_ED_IDLE default), and
+	 * never rejoins because it never wakes.
 	 */
-	zigbee_configure_sleepy_behavior(false);
+	if (IS_ENABLED(CONFIG_APP_ZIGBEE_SLEEPY_ED)) {
+		zb_set_ed_timeout(ED_AGING_TIMEOUT_64MIN);
+		zb_set_keepalive_timeout(
+			ZB_MILLISECONDS_TO_BEACON_INTERVAL(30000));
+	}
+	zigbee_configure_sleepy_behavior(IS_ENABLED(CONFIG_APP_ZIGBEE_SLEEPY_ED));
 
 	zigbee_enable();
 	return 0;
