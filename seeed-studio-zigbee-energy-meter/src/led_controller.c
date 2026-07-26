@@ -31,6 +31,15 @@ static bool     joining_phase_on;
 static uint32_t join_fail_ticks_remaining;
 static uint32_t erase_confirm_ticks_remaining;
 static bool     identify_phase_on;
+/* FATAL renderer state — see led_request_fatal in led_controller.h for
+ * the flash-count → failure-site mapping. `fatal_flash_count` is 1..5.
+ * `fatal_phase_index` counts modulo 2 * flash_count during the pre-
+ * collapse window, then modulo 2 after the 10-min collapse (single
+ * flash + long off).
+ */
+static uint32_t fatal_flash_count;
+static uint32_t fatal_phase_index;
+static int64_t  fatal_start_ms;
 
 /* Single shared tick — only one pattern renders at a time, so one work
  * item is enough. Idle transitions cancel the work; the workqueue's
@@ -62,6 +71,21 @@ static K_WORK_DELAYABLE_DEFINE(tick_work, tick_handler);
  * joining, white reads as button-ack — magenta is unambiguous.
  */
 #define IDENTIFY_HALF_PERIOD_MS      200
+/* Fatal pattern shape: N pulses of 100 ms on with 100 ms off between
+ * them, then a long tail-off that stretches the cycle to 5 s total.
+ * Keeps duty ≤ 10 % for every N in 1..5 (worst case N=5 → 500 ms on
+ * / 5000 ms period = exactly 10 %).
+ */
+#define FATAL_PULSE_ON_MS            100
+#define FATAL_PULSE_OFF_MS           100
+#define FATAL_CYCLE_MS               5000
+/* After this long in the fatal loop, collapse to a single 100 ms
+ * flash every 10 s (~1 % duty) so the failure indicator survives
+ * long enough to be noticed weeks later on a field visit.
+ */
+#define FATAL_COLLAPSE_AFTER_MS      (10 * 60 * 1000)
+#define FATAL_COLLAPSE_ON_MS         100
+#define FATAL_COLLAPSE_OFF_MS        9900
 
 static void set_leds_rgb(int r, int g, int b)
 {
@@ -130,6 +154,19 @@ static void render_start_locked(enum led_pattern_id pattern)
 		set_leds_rgb(1, 0, 0);
 		k_work_reschedule(&tick_work,
 				  K_MSEC(ERASE_CONFIRM_HALF_PERIOD_MS));
+		break;
+
+	case LED_PATTERN_FATAL:
+		/* Enter at phase 0 = first pulse on. Tick handler
+		 * advances phase_index and picks pulse-on / pulse-off /
+		 * long-tail from it, and also handles the 10-min
+		 * collapse. fatal_flash_count and fatal_start_ms are
+		 * populated by led_request_fatal before the reselect
+		 * lands us here.
+		 */
+		fatal_phase_index = 0;
+		set_leds_rgb(1, 0, 0);
+		k_work_reschedule(&tick_work, K_MSEC(FATAL_PULSE_ON_MS));
 		break;
 
 	case LED_PATTERN_NONE:
@@ -203,6 +240,24 @@ void led_cancel(enum led_pattern_id pattern)
 	k_spinlock_key_t key = k_spin_lock(&lock);
 
 	led_priority_cancel(&state, pattern);
+	reselect_if_changed_locked();
+
+	k_spin_unlock(&lock, key);
+}
+
+void led_request_fatal(uint32_t flash_count)
+{
+	if (flash_count < 1) {
+		flash_count = 1;
+	} else if (flash_count > 5) {
+		flash_count = 5;
+	}
+
+	k_spinlock_key_t key = k_spin_lock(&lock);
+
+	fatal_flash_count = flash_count;
+	fatal_start_ms = k_uptime_get();
+	led_priority_request(&state, LED_PATTERN_FATAL, LED_PRIO_FATAL);
 	reselect_if_changed_locked();
 
 	k_spin_unlock(&lock, key);
@@ -290,6 +345,59 @@ static void tick_handler(struct k_work *work)
 			     identify_phase_on ? 1 : 0);
 		k_work_reschedule(&tick_work, K_MSEC(IDENTIFY_HALF_PERIOD_MS));
 		break;
+
+	case LED_PATTERN_FATAL: {
+		int64_t elapsed = k_uptime_get() - fatal_start_ms;
+
+		if (elapsed >= FATAL_COLLAPSE_AFTER_MS) {
+			/* Collapsed mode: 100 ms flash every 10 s.
+			 * Two phases modulo 2: 0 = on, 1 = long off.
+			 */
+			fatal_phase_index = (fatal_phase_index + 1) % 2;
+			if (fatal_phase_index == 0) {
+				set_leds_rgb(1, 0, 0);
+				k_work_reschedule(&tick_work,
+						  K_MSEC(FATAL_COLLAPSE_ON_MS));
+			} else {
+				set_leds_rgb(0, 0, 0);
+				k_work_reschedule(&tick_work,
+						  K_MSEC(FATAL_COLLAPSE_OFF_MS));
+			}
+		} else {
+			/* Pre-collapse: N pulses per 5-s cycle. Phase
+			 * indices 0..2N-1: even = pulse on, odd = short
+			 * off (100 ms) except the last odd index, which
+			 * is the long tail-off filling to 5 s total.
+			 */
+			uint32_t phases = 2u * fatal_flash_count;
+
+			fatal_phase_index = (fatal_phase_index + 1) % phases;
+			bool on = (fatal_phase_index % 2) == 0;
+
+			set_leds_rgb(on ? 1 : 0, 0, 0);
+
+			uint32_t delay;
+
+			if (on) {
+				delay = FATAL_PULSE_ON_MS;
+			} else if (fatal_phase_index < phases - 1u) {
+				delay = FATAL_PULSE_OFF_MS;
+			} else {
+				/* Long tail = 5-s cycle minus the
+				 * (2N-1) short-100 ms phases that
+				 * precede it (N pulse-on + N-1 short-
+				 * off between pulses). Pulse and short-
+				 * off are both 100 ms so a single
+				 * subtraction covers both.
+				 */
+				delay = FATAL_CYCLE_MS -
+					(2u * fatal_flash_count - 1u) *
+					FATAL_PULSE_ON_MS;
+			}
+			k_work_reschedule(&tick_work, K_MSEC(delay));
+		}
+		break;
+	}
 
 	default:
 		/* Stale tick that fired after cancellation, or a pattern

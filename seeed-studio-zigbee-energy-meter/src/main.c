@@ -318,8 +318,12 @@ int main(void)
 	const struct device *const cdc = DEVICE_DT_GET(DT_CHOSEN(zephyr_console));
 
 	if (!device_is_ready(cdc)) {
+		/* Category 1 = CDC-ACM device_not_ready (see the flash-
+		 * count → failure-site mapping in led_controller.h).
+		 */
+		led_request_fatal(1);
 		while (1) {
-			blink(1, 80, 80);
+			k_sleep(K_FOREVER);
 		}
 	}
 
@@ -330,24 +334,28 @@ int main(void)
 	int usb_err = usb_enable(NULL);
 
 	if (usb_err != 0 && usb_err != -EALREADY) {
+		/* Category 2 = usb_enable failed. */
+		led_request_fatal(2);
 		while (1) {
-			blink(1, 80, 80);
+			k_sleep(K_FOREVER);
 		}
 	}
 
 	if (user_button_configure()) {
+		/* Category 3 = user_button_configure failed. */
+		led_request_fatal(3);
 		while (1) {
-			blink(1, 500, 500);
+			k_sleep(K_FOREVER);
 		}
 	}
 
 	if (led_controller_init()) {
-		/* Distinct rate from the other setup fatals so the bench
-		 * observer can tell which init failed. This whole ladder
-		 * of tight blink loops is refactored into led_request()
-		 * calls in follow-up #32; until then, direct blink() is
-		 * the only path that works when led_controller itself
-		 * is the thing that failed.
+		/* Predates #32 — this is the one fatal path that can't
+		 * go through led_request_fatal because the LED
+		 * controller itself is the thing that failed. Kept as
+		 * a direct blink(1, 750, 750) on the red LED main.c
+		 * already has a handle for; distinct rate so the bench
+		 * observer can tell it apart from the migrated fatals.
 		 */
 		while (1) {
 			blink(1, 750, 750);
@@ -359,8 +367,10 @@ int main(void)
 	if (hw_err) {
 		LOG_ERR("hw_pulse_counter_init failed: %d — pulse counting will not work",
 			hw_err);
+		/* Category 4 = hw_pulse_counter_init failed. */
+		led_request_fatal(4);
 		while (1) {
-			blink(1, 250, 250);
+			k_sleep(K_FOREVER);
 		}
 	}
 
@@ -473,8 +483,10 @@ int main(void)
 	 * ZBOSS having been brought up first.
 	 */
 	if (user_button_arm_irq()) {
+		/* Category 5 = user_button_arm_irq failed. */
+		led_request_fatal(5);
 		while (1) {
-			blink(1, 500, 500);
+			k_sleep(K_FOREVER);
 		}
 	}
 
