@@ -23,45 +23,84 @@ static struct led_priority_state state;
 static struct k_spinlock lock;
 static enum led_pattern_id rendered = LED_PATTERN_NONE;
 
-/* Only pattern with a live renderer in the #28 foundation slice: a
- * single 100 ms all-LEDs-on flash on classified short-press. The rest
- * of the priority table is admissible but no-op-rendered.
+/* Pattern-specific renderer state. All mutated under `lock`; both the
+ * request/cancel wrappers and the shared tick handler take the same
+ * spinlock, so no atomics needed.
  */
-#define BUTTON_ACK_ON_MS 100
+static bool     joining_phase_on;
+static uint32_t join_fail_ticks_remaining;
 
-static void button_ack_off_handler(struct k_work *work);
-static K_WORK_DELAYABLE_DEFINE(button_ack_off_work, button_ack_off_handler);
+/* Single shared tick — only one pattern renders at a time, so one work
+ * item is enough. Idle transitions cancel the work; the workqueue's
+ * cancel is safe under spinlock (returns state flags, never blocks).
+ */
+static void tick_handler(struct k_work *work);
+static K_WORK_DELAYABLE_DEFINE(tick_work, tick_handler);
+
+#define BUTTON_ACK_ON_MS       100
+#define JOINING_HALF_PERIOD_MS 500
+#define JOIN_SUCCESS_ON_MS     2000
+#define JOIN_FAIL_HALF_PERIOD_MS 200
+/* 3 blinks = 6 phase transitions total. Renderer starts with red on
+ * (the 1st transition); five ticks toggle through off/on/off/on/off,
+ * ending at the natural "all dark" resting state before cancelling.
+ */
+#define JOIN_FAIL_TICKS        5
+
+static void set_leds_rgb(int r, int g, int b)
+{
+	gpio_pin_set_dt(&led_red,   r);
+	gpio_pin_set_dt(&led_green, g);
+	gpio_pin_set_dt(&led_blue,  b);
+}
 
 static void set_all_leds(int on)
 {
-	gpio_pin_set_dt(&led_red,   on);
-	gpio_pin_set_dt(&led_green, on);
-	gpio_pin_set_dt(&led_blue,  on);
+	set_leds_rgb(on, on, on);
 }
 
-static void render(enum led_pattern_id pattern)
+static void render_start_locked(enum led_pattern_id pattern)
 {
+	/* Any transition cancels the previous pattern's pending tick.
+	 * A stale tick that lands after we've moved on will find
+	 * `rendered` no longer matches its case and no-op. Safe.
+	 */
+	k_work_cancel_delayable(&tick_work);
+
 	switch (pattern) {
 	case LED_PATTERN_BUTTON_ACK:
 		set_all_leds(1);
-		k_work_reschedule(&button_ack_off_work, K_MSEC(BUTTON_ACK_ON_MS));
+		k_work_reschedule(&tick_work, K_MSEC(BUTTON_ACK_ON_MS));
 		break;
+
+	case LED_PATTERN_JOINING:
+		joining_phase_on = true;
+		set_leds_rgb(0, 0, 1);
+		k_work_reschedule(&tick_work, K_MSEC(JOINING_HALF_PERIOD_MS));
+		break;
+
+	case LED_PATTERN_JOIN_SUCCESS:
+		set_leds_rgb(0, 1, 0);
+		k_work_reschedule(&tick_work, K_MSEC(JOIN_SUCCESS_ON_MS));
+		break;
+
+	case LED_PATTERN_JOIN_FAIL:
+		join_fail_ticks_remaining = JOIN_FAIL_TICKS;
+		set_leds_rgb(1, 0, 0);
+		k_work_reschedule(&tick_work, K_MSEC(JOIN_FAIL_HALF_PERIOD_MS));
+		break;
+
 	case LED_PATTERN_NONE:
-		/* Cancelling any in-flight one-shot as we go idle keeps a
-		 * button-ack that was preempted before its 100 ms elapsed
-		 * from firing later and clobbering whatever pattern the
-		 * preemption ended in. cancel is a no-op if the work
-		 * isn't scheduled.
-		 */
-		k_work_cancel_delayable(&button_ack_off_work);
 		set_all_leds(0);
 		break;
+
 	default:
-		/* Dispatchable but not yet rendered — see follow-up issues.
-		 * Leave the LEDs off; the priority core still records the
-		 * request so its preemption behaviour is verifiable.
+		/* Dispatchable but no renderer yet (long-press hold,
+		 * identify, erase confirm, fatal, heartbeat — see
+		 * follow-up issues). Keep LEDs off; the priority core
+		 * still records the request so preemption stays
+		 * observable.
 		 */
-		k_work_cancel_delayable(&button_ack_off_work);
 		set_all_leds(0);
 		break;
 	}
@@ -75,7 +114,7 @@ static void reselect_if_changed_locked(void)
 		return;
 	}
 	rendered = selected;
-	render(selected);
+	render_start_locked(selected);
 }
 
 int led_controller_init(void)
@@ -127,9 +166,70 @@ void led_cancel(enum led_pattern_id pattern)
 	k_spin_unlock(&lock, key);
 }
 
-static void button_ack_off_handler(struct k_work *work)
+static void tick_handler(struct k_work *work)
 {
 	ARG_UNUSED(work);
 
-	led_cancel(LED_PATTERN_BUTTON_ACK);
+	k_spinlock_key_t key = k_spin_lock(&lock);
+
+	switch (rendered) {
+	case LED_PATTERN_BUTTON_ACK:
+		/* One-shot complete. Clearing the priority state and
+		 * reselecting will either idle (LEDs off) or land on
+		 * a lower-prio pattern that got queued during the
+		 * flash (nothing lower today, but future-proofed).
+		 */
+		led_priority_cancel(&state, LED_PATTERN_BUTTON_ACK);
+		reselect_if_changed_locked();
+		break;
+
+	case LED_PATTERN_JOINING:
+		/* Continuous 500/500 blue blink. Runs indefinitely
+		 * until the caller cancels — the join lifecycle
+		 * caller (zigbee_app_c) cancels when ZB_BDB_SIGNAL_STEERING
+		 * resolves.
+		 */
+		joining_phase_on = !joining_phase_on;
+		set_leds_rgb(0, 0, joining_phase_on ? 1 : 0);
+		k_work_reschedule(&tick_work, K_MSEC(JOINING_HALF_PERIOD_MS));
+		break;
+
+	case LED_PATTERN_JOIN_SUCCESS:
+		/* Solid-on for 2 s, then off. */
+		led_priority_cancel(&state, LED_PATTERN_JOIN_SUCCESS);
+		reselect_if_changed_locked();
+		break;
+
+	case LED_PATTERN_JOIN_FAIL:
+		if (join_fail_ticks_remaining == 0) {
+			/* Cycle done — LEDs are already off from the
+			 * final toggle below on the previous tick.
+			 */
+			led_priority_cancel(&state, LED_PATTERN_JOIN_FAIL);
+			reselect_if_changed_locked();
+		} else {
+			/* Read the pin (via a shadow) and toggle it. GPIO
+			 * driver doesn't offer a "toggle and read new
+			 * state" primitive under this API, so use the
+			 * remaining-ticks parity to decide: odd count
+			 * remaining means we're about to go OFF, even
+			 * means ON.
+			 */
+			bool red_on = (join_fail_ticks_remaining % 2) == 0;
+
+			set_leds_rgb(red_on ? 1 : 0, 0, 0);
+			join_fail_ticks_remaining--;
+			k_work_reschedule(&tick_work,
+					  K_MSEC(JOIN_FAIL_HALF_PERIOD_MS));
+		}
+		break;
+
+	default:
+		/* Stale tick that fired after cancellation, or a pattern
+		 * we haven't wired a renderer for yet. Nothing to do.
+		 */
+		break;
+	}
+
+	k_spin_unlock(&lock, key);
 }

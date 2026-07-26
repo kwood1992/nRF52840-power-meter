@@ -4,6 +4,7 @@
 
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
+#include <zephyr/sys/atomic.h>
 
 #include <zboss_api.h>
 #include <zboss_api_addons.h>
@@ -12,6 +13,7 @@
 #include <zigbee/zigbee_error_handler.h>
 #include <zb_nrf_platform.h>
 
+#include "led_controller.h"
 #include "metering_scale.h"
 #include "zb_meter_ep.h"
 
@@ -142,6 +144,15 @@ ZBOSS_DECLARE_DEVICE_CTX_1_EP(
 static bool joined;
 static bool endpoint_registered;
 
+/* Set by zigbee_app_start_join() (Zephyr thread context) and cleared by
+ * the ZBOSS signal handler on ZB_BDB_SIGNAL_STEERING (ZBOSS thread
+ * context) — an atomic keeps the two-thread hand-off honest. Only
+ * user-initiated joins get LED feedback; stack-internal auto-rejoin
+ * after ZB_ZDO_SIGNAL_LEAVE stays silent so a coordinator restart
+ * in the middle of the night doesn't blink a mounted meter.
+ */
+static atomic_t user_join_in_flight = ATOMIC_INIT(0);
+
 /*
  * ZBOSS calls this from its main loop on every stack event.
  *
@@ -163,6 +174,21 @@ void zboss_signal_handler(zb_bufid_t bufid)
 		joined = (status == RET_OK);
 		LOG_INF("network steering: %s (status=%d)",
 			joined ? "joined" : "failed", status);
+
+		/* Only paint the outcome if a user-initiated join was in
+		 * flight — auto-rejoin after ZB_ZDO_SIGNAL_LEAVE fires
+		 * the same signal and must stay silent (issue #29).
+		 */
+		if (atomic_cas(&user_join_in_flight, 1, 0)) {
+			led_cancel(LED_PATTERN_JOINING);
+			if (status == RET_OK) {
+				led_request(LED_PATTERN_JOIN_SUCCESS,
+					    LED_PRIO_JOIN_SUCCESS);
+			} else {
+				led_request(LED_PATTERN_JOIN_FAIL,
+					    LED_PRIO_JOIN_FAIL);
+			}
+		}
 		break;
 
 	case ZB_ZDO_SIGNAL_LEAVE:
@@ -436,6 +462,14 @@ static void publish_summation_and_report_cb(zb_uint8_t param)
 void zigbee_app_start_join(void)
 {
 	LOG_INF("starting network steering");
+	/* Mark this steering as user-initiated so the signal handler
+	 * paints the outcome (see zboss_signal_handler). The blue-blink
+	 * request goes in here so the LED shows intent immediately —
+	 * a stack-internal steering that hasn't been requested by the
+	 * app never sets this flag and never asks for the LED.
+	 */
+	atomic_set(&user_join_in_flight, 1);
+	led_request(LED_PATTERN_JOINING, LED_PRIO_JOINING);
 	ZB_SCHEDULE_APP_CALLBACK(start_steering_cb, 0);
 }
 
