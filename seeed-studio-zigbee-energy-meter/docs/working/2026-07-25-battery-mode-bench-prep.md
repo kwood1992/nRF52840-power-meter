@@ -132,6 +132,44 @@ Ordered by expected impact on average current:
    AND tighten the initial poll interval for the join window, then
    loosen it after interview completes. This alone should take us
    from ~5 mA to <100 µA average.
+
+   **SPECULATIVE LAND (no measurements yet)** — implemented on this
+   branch. Three Kconfig knobs, all under a new `Zigbee sleepy-ED
+   behaviour (issue #8 blocker 1)` menu:
+   - `APP_ZIGBEE_SLEEPY_ED=y` (default) — flips
+     `zb_set_rx_on_when_idle` to FALSE at boot
+   - `APP_ZIGBEE_JOIN_TURBO_POLL_MS=30000` — on
+     `ZB_BDB_SIGNAL_STEERING`+RET_OK the signal handler calls
+     `zb_zdo_pim_start_turbo_poll_continuous(30_000)` to cover Z2M's
+     interview reads at ~100 ms poll cadence; ZBOSS auto-reverts to
+     the long-poll interval when the window expires (no separate
+     leave callback needed)
+   - `APP_ZIGBEE_LONG_POLL_INTERVAL_MS=60000` — set via
+     `zb_zdo_pim_set_long_poll_interval` right before the turbo call
+     (ZBOSS API note: long-poll config only valid AFTER join, during
+     steering it snaps back to the default 5 s)
+
+   Untested assumptions to confirm at the bench:
+   - Does the 30 s turbo window actually cover a fresh Z2M interview,
+     including retries after a bad first parent choice?
+   - Does the auto-rejoin path (`ZB_ZDO_SIGNAL_LEAVE` → new
+     `ZB_BDB_SIGNAL_STEERING`) re-apply the poll intervals cleanly?
+     (Same signal handler block runs on any RET_OK steering.)
+   - Any regression in `tools/test-join.sh` under sleepy — Z2M's
+     interview could still fail if the coordinator is slow.
+
+   If the interview breaks, `dev.conf` can flip
+   `APP_ZIGBEE_SLEEPY_ED=n` for a temporary rollback while
+   measurements pinpoint the failing knob.
+
+   **Decision to revisit once INA219 (#35) is on the bench**: turbo
+   poll vs. a plain short long-poll (light_switch-sample style, e.g.
+   3-5 s always). Turbo poll assumes the 60 s long-poll savings
+   dominate the 30 s / rejoin burst cost; the INA219 CSV is what
+   proves or refutes that. If a flat 3 s long-poll hits the sleep-
+   current target inside a factor of ~2, drop the turbo dance and
+   simplify to one `zb_zdo_pim_set_long_poll_interval()` in init.
+   If not, keep turbo and tune the two window/long-poll values.
 2. **USB CDC-ACM permanently enabled** — `CONFIG_USB_DEVICE_STACK=y`,
    `CONFIG_USB_CDC_ACM=y` in `prj.conf`, unconditional `usb_enable()`
    in `main.c:295`. USB draws mA even when idle. Fix: detect VBUS at
