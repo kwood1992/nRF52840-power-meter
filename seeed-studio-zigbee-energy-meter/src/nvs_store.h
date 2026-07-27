@@ -24,4 +24,14 @@ int nvs_store_load_total(uint64_t *out);
 
 int nvs_store_save_total(uint64_t total);
 
+/*
+ * Persist the imp/kWh calibration (Metering-cluster Divisor, since our
+ * Multiplier is pinned to 1). Same load/save shape as the accumulator
+ * total. Validation lives in calibration.[ch]; this layer is a dumb
+ * u32 slot.
+ */
+int nvs_store_load_imp_per_kwh(uint32_t *out);
+
+int nvs_store_save_imp_per_kwh(uint32_t imp_per_kwh);
+
 #endif
