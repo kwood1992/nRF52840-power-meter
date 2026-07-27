@@ -10,11 +10,13 @@
 
 LOG_MODULE_REGISTER(nvs_store, LOG_LEVEL_INF);
 
-/* Single-record store — one u64 for the accumulator total. Keeping the ID
- * space tiny for now; if we later persist other things (Zigbee join state,
- * calibration Divisor override, ...) each gets its own ID.
+/* One ID per persisted value. IDs are stable schema — never renumber,
+ * never re-purpose. On the wear-leveled NVS partition the ID is what
+ * matches a record to its slot, so a rename would silently orphan the
+ * old data.
  */
 #define NVS_ID_ACCUMULATOR_TOTAL 1U
+#define NVS_ID_IMP_PER_KWH       2U  /* Metering Divisor override, issue #48 */
 
 static struct nvs_fs fs;
 static bool initialized;
@@ -96,6 +98,41 @@ int nvs_store_save_total(uint64_t total)
 	}
 
 	ssize_t n = nvs_write(&fs, NVS_ID_ACCUMULATOR_TOTAL, &total, sizeof(total));
+
+	if (n < 0) {
+		return (int)n;
+	}
+	return 0;
+}
+
+int nvs_store_load_imp_per_kwh(uint32_t *out)
+{
+	if (!initialized) {
+		return -EINVAL;
+	}
+
+	uint32_t val = 0;
+	ssize_t n = nvs_read(&fs, NVS_ID_IMP_PER_KWH, &val, sizeof(val));
+
+	if (n == sizeof(val)) {
+		*out = val;
+		return 0;
+	}
+	if (n < 0) {
+		return (int)n;
+	}
+	/* Never written or short read — treat as "use compile-time default". */
+	return -ENOENT;
+}
+
+int nvs_store_save_imp_per_kwh(uint32_t imp_per_kwh)
+{
+	if (!initialized) {
+		return -EINVAL;
+	}
+
+	ssize_t n = nvs_write(&fs, NVS_ID_IMP_PER_KWH,
+			      &imp_per_kwh, sizeof(imp_per_kwh));
 
 	if (n < 0) {
 		return (int)n;

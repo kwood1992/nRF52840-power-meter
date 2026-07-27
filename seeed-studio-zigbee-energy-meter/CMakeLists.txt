@@ -12,6 +12,7 @@ project(zigbee_energy_meter LANGUAGES C)
 target_sources(app PRIVATE
 	src/main.c
 	src/button_press_classifier.c
+	src/calibration.c
 	src/hw_pulse_counter.c
 	src/led_controller.c
 	src/led_priority.c

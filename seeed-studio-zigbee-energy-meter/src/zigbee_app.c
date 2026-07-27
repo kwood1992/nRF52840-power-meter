@@ -13,8 +13,10 @@
 #include <zigbee/zigbee_error_handler.h>
 #include <zb_nrf_platform.h>
 
+#include "calibration.h"
 #include "led_controller.h"
 #include "metering_scale.h"
+#include "nvs_store.h"
 #include "zb_meter_ep.h"
 
 LOG_MODULE_REGISTER(zigbee_app, LOG_LEVEL_INF);
@@ -29,18 +31,22 @@ LOG_MODULE_REGISTER(zigbee_app, LOG_LEVEL_INF);
 
 /*
  * Design-doc defaults for the Metering cluster (see the "Zigbee model"
- * row): Multiplier=1, Divisor=1000, UnitOfMeasure=0 (kWh),
+ * row): Multiplier=1, Divisor=1000 (imp/kWh), UnitOfMeasure=0 (kWh),
  * SummationFormatting=0 (no additional formatting hints — Z2M knows to
  * apply Divisor). MeteringDeviceType=0 = "Electric Metering".
  *
  * The pulse-count-to-kWh math lives in Z2M: kWh = raw_summation ×
  * Multiplier ÷ Divisor. On a 1000 imp/kWh meter the raw summation IS
- * the pulse count, and Divisor=1000 gives Z2M kWh directly. If a field
- * meter turns out to be, say, 800 imp/kWh, the fix is Divisor=800 —
- * changeable at runtime via a Z2M attribute write, no reflash needed.
+ * the pulse count, and Divisor=1000 gives Z2M kWh directly. For a
+ * different meter (say 800 imp/kWh), overwrite Divisor from Z2M — see
+ * `Metering Divisor is runtime-writable` below.
+ *
+ * Multiplier is pinned to 1 (kept read-only via the stock ZBOSS
+ * descriptor macros) and is not persisted. The only tuning knob is
+ * Divisor.
  */
 #define METERING_MULTIPLIER      1U
-#define METERING_DIVISOR         1000U
+#define METERING_DEFAULT_DIVISOR CONFIG_APP_METERING_DEFAULT_IMP_PER_KWH
 #define METERING_UNIT_KWH        ZB_ZCL_METERING_UNIT_OF_MEASURE_DEFAULT_VALUE  /* 0 = kWh */
 #define METERING_SUMM_FORMATTING 0U
 #define METERING_DEVICE_TYPE     0U  /* 0 = Electric Metering per SE 1.4 D.5.2.2.5.2 */
@@ -109,22 +115,46 @@ ZB_ZCL_DECLARE_BASIC_ATTRIB_LIST_EXT(
 	&dev_ctx.basic_attr.ph_env,
 	dev_ctx.basic_attr.sw_ver);
 
-/* EXT variant so Multiplier/Divisor land in the attribute table
- * (the plain ATTRIB_LIST omits them, which would leave Z2M unable
- * to read the divisor and stuck at raw pulse-count units).
+/*
+ * Metering Divisor is runtime-writable (issue #48). The stock ZBOSS
+ * macro `ZB_ZCL_DECLARE_METERING_ATTRIB_LIST_EXT` declares Divisor as
+ * `ZB_ZCL_ATTR_ACCESS_READ_ONLY` (zb_zcl_metering.h:2438-2445), which
+ * makes Z2M's attribute-write path return NOT_AUTHORIZED at the ZCL
+ * layer — no callback fires, no persistence hook runs. Hand-roll the
+ * attribute list so we can flip just Divisor to READ_WRITE using
+ * `ZB_ZCL_SET_ATTR_DESC_M`. All other entries reuse the stock
+ * descriptors so the access flags for CurrentSummationDelivered et al
+ * stay identical to what the ncs-zigbee reference builds ship.
+ *
+ * Multiplier stays read-only intentionally: keeping the two-variable
+ * `kWh = raw × Mult ÷ Div` simple by making only one of them tunable
+ * (Divisor == imp/kWh) is a deliberate scope choice — see the issue.
  */
-ZB_ZCL_DECLARE_METERING_ATTRIB_LIST_EXT(
-	metering_attr_list,
-	&dev_ctx.metering_current_summation,
-	&dev_ctx.metering_status,
-	&dev_ctx.metering_unit_of_measure,
-	&dev_ctx.metering_summation_formatting,
-	&dev_ctx.metering_device_type,
-	&dev_ctx.metering_instantaneous_demand,
-	&dev_ctx.metering_demand_formatting,
-	&dev_ctx.metering_historical_consumption_formatting,
-	&dev_ctx.metering_multiplier,
-	&dev_ctx.metering_divisor);
+ZB_ZCL_START_DECLARE_ATTRIB_LIST_CLUSTER_REVISION(metering_attr_list,
+						  ZB_ZCL_METERING)
+	ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_METERING_CURRENT_SUMMATION_DELIVERED_ID,
+			     &dev_ctx.metering_current_summation)
+	ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_METERING_STATUS_ID,
+			     &dev_ctx.metering_status)
+	ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_METERING_UNIT_OF_MEASURE_ID,
+			     &dev_ctx.metering_unit_of_measure)
+	ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_METERING_SUMMATION_FORMATTING_ID,
+			     &dev_ctx.metering_summation_formatting)
+	ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_METERING_METERING_DEVICE_TYPE_ID,
+			     &dev_ctx.metering_device_type)
+	ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_METERING_INSTANTANEOUS_DEMAND_ID,
+			     &dev_ctx.metering_instantaneous_demand)
+	ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_METERING_DEMAND_FORMATTING_ID,
+			     &dev_ctx.metering_demand_formatting)
+	ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_METERING_HISTORICAL_CONSUMPTION_FORMATTING_ID,
+			     &dev_ctx.metering_historical_consumption_formatting)
+	ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_METERING_MULTIPLIER_ID,
+			     &dev_ctx.metering_multiplier)
+	ZB_ZCL_SET_ATTR_DESC_M(ZB_ZCL_ATTR_METERING_DIVISOR_ID,
+			       &dev_ctx.metering_divisor,
+			       ZB_ZCL_ATTR_TYPE_U24,
+			       ZB_ZCL_ATTR_ACCESS_READ_WRITE)
+ZB_ZCL_FINISH_DECLARE_ATTRIB_LIST;
 
 ZB_DECLARE_METER_CLUSTER_LIST(
 	app_clusters,
@@ -143,6 +173,20 @@ ZBOSS_DECLARE_DEVICE_CTX_1_EP(
 
 static bool joined;
 static bool endpoint_registered;
+
+/*
+ * The current effective Divisor (imp/kWh), kept in sync with the
+ * ZCL attribute table. Two roles:
+ *   - Compare-against-previous when a Z2M attribute write arrives, so
+ *     a rejected out-of-range write can be rolled back without
+ *     re-parsing the packed u24 attribute value.
+ *   - Debug logging so a "why is Z2M reading 0.5 kWh instead of 1?"
+ *     can be answered from the console.
+ * Populated from NVS (or CONFIG_APP_METERING_DEFAULT_IMP_PER_KWH on
+ * cold boot) inside metering_attrs_init(), then updated by the ZCL
+ * device callback on every accepted Divisor write.
+ */
+static uint32_t effective_divisor;
 
 /* Set by zigbee_app_start_join() (Zephyr thread context) and cleared by
  * the ZBOSS signal handler on ZB_BDB_SIGNAL_STEERING (ZBOSS thread
@@ -277,9 +321,48 @@ static void metering_attrs_init(void)
 	 * (packed structs on nRF, low+high halves). Use the ZBOSS
 	 * helper that converts a u32 into the packed u24 — writing the
 	 * halves by hand is easy to get wrong and the helper is free.
+	 *
+	 * Multiplier is pinned to 1 (design-doc default; the only tuning
+	 * knob is Divisor).
+	 *
+	 * Divisor comes from NVS if a Z2M write has previously been
+	 * persisted; otherwise falls back to the compile-time default.
+	 * A value in NVS that has fallen out of range (e.g., a firmware
+	 * that used to accept a wider range wrote something we now
+	 * reject) is treated the same as no value — surface the fallback
+	 * via a warning so the installer notices, but don't refuse to
+	 * boot.
 	 */
 	zb_uint32_to_uint24(METERING_MULTIPLIER, &dev_ctx.metering_multiplier);
-	zb_uint32_to_uint24(METERING_DIVISOR, &dev_ctx.metering_divisor);
+
+	uint32_t divisor = METERING_DEFAULT_DIVISOR;
+	uint32_t nvs_val = 0;
+	int rc = nvs_store_load_imp_per_kwh(&nvs_val);
+
+	if (rc == 0) {
+		if (calibration_is_valid_imp_per_kwh(nvs_val)) {
+			divisor = nvs_val;
+			LOG_INF("Metering Divisor: imp/kWh=%u (from NVS)",
+				(unsigned)divisor);
+		} else {
+			LOG_WRN("NVS imp/kWh=%u out of range [%u..%u] — "
+				"using compile-time default %u",
+				(unsigned)nvs_val,
+				CALIBRATION_IMP_PER_KWH_MIN,
+				CALIBRATION_IMP_PER_KWH_MAX,
+				(unsigned)divisor);
+		}
+	} else if (rc == -ENOENT) {
+		LOG_INF("Metering Divisor: imp/kWh=%u (compile-time default; "
+			"nothing persisted yet)",
+			(unsigned)divisor);
+	} else {
+		LOG_ERR("nvs_store_load_imp_per_kwh failed: %d — using default %u",
+			rc, (unsigned)divisor);
+	}
+
+	effective_divisor = divisor;
+	zb_uint32_to_uint24(divisor, &dev_ctx.metering_divisor);
 }
 
 static void app_clusters_attr_init(void)
@@ -328,6 +411,92 @@ static void app_clusters_attr_init(void)
 	metering_attrs_init();
 }
 
+/*
+ * ZCL device callback — invoked by ZBOSS post-write, after the
+ * incoming attribute value has already been written into
+ * `dev_ctx.metering_divisor`. If we reject, ZBOSS uses `p->status`
+ * as the ZCL response; the attribute-table update is our problem to
+ * undo (see the rollback path below).
+ *
+ * Scope: this handler is a filter for one attribute (Metering.Divisor)
+ * and quietly RET_OK's every other invocation so cluster machinery
+ * that ZBOSS drives through the same callback (identify effects, etc.)
+ * still works. Other paths that want to hook this callback in future
+ * should extend the switch here rather than replacing it.
+ */
+static void zcl_device_cb(zb_bufid_t bufid)
+{
+	zb_zcl_device_callback_param_t *p =
+		ZB_BUF_GET_PARAM(bufid, zb_zcl_device_callback_param_t);
+
+	p->status = RET_OK;
+
+	if (p->device_cb_id != ZB_ZCL_SET_ATTR_VALUE_CB_ID) {
+		return;
+	}
+	if (p->cb_param.set_attr_value_param.cluster_id !=
+	    ZB_ZCL_CLUSTER_ID_METERING) {
+		return;
+	}
+	if (p->cb_param.set_attr_value_param.attr_id !=
+	    ZB_ZCL_ATTR_METERING_DIVISOR_ID) {
+		return;
+	}
+
+	/* zb_uint24_t on the target is a packed {u16 low, u8 high}
+	 * struct (zb_types.h:1011). Rebuild the u32 by hand — the
+	 * ZBOSS helper only goes the other way (u32→u24).
+	 */
+	zb_uint24_t v24 = p->cb_param.set_attr_value_param.values.data24;
+	uint32_t new_divisor = ((uint32_t)v24.high << 16) | v24.low;
+
+	if (!calibration_is_valid_imp_per_kwh(new_divisor)) {
+		LOG_WRN("rejecting Metering Divisor write: %u out of range "
+			"[%u..%u] — rolling back to %u",
+			(unsigned)new_divisor,
+			CALIBRATION_IMP_PER_KWH_MIN,
+			CALIBRATION_IMP_PER_KWH_MAX,
+			(unsigned)effective_divisor);
+
+		/* ZBOSS already committed the bad value to the attribute
+		 * store; put the previously-effective value back so a
+		 * follow-up Z2M read returns the still-valid Divisor.
+		 * ZB_FALSE bypasses the access-flag check (we're the app,
+		 * we own this attribute).
+		 */
+		zb_uint24_t rollback;
+
+		zb_uint32_to_uint24(effective_divisor, &rollback);
+		ZB_ZCL_SET_ATTRIBUTE(APP_ENDPOINT,
+				     ZB_ZCL_CLUSTER_ID_METERING,
+				     ZB_ZCL_CLUSTER_SERVER_ROLE,
+				     ZB_ZCL_ATTR_METERING_DIVISOR_ID,
+				     (zb_uint8_t *)&rollback,
+				     ZB_FALSE);
+		p->status = RET_OUT_OF_RANGE;
+		return;
+	}
+
+	int rc = nvs_store_save_imp_per_kwh(new_divisor);
+
+	if (rc) {
+		/* Persist failed — keep the write in memory anyway. Losing
+		 * the value on next reboot is a worse outcome than
+		 * refusing a valid write; the installer will notice next
+		 * boot when the value snaps back to the compile-time
+		 * default.
+		 */
+		LOG_ERR("nvs_store_save_imp_per_kwh(%u) failed: %d — "
+			"value applied in memory only",
+			(unsigned)new_divisor, rc);
+	} else {
+		LOG_INF("Metering Divisor updated: imp/kWh=%u (persisted)",
+			(unsigned)new_divisor);
+	}
+
+	effective_divisor = new_divisor;
+}
+
 int zigbee_app_init(void)
 {
 	/* Register the endpoint context BEFORE zigbee_enable(). Without
@@ -335,6 +504,7 @@ int zigbee_app_init(void)
 	 * and bdb_start_top_level_commissioning() asserts — see #4's
 	 * notes for the exact failure signature.
 	 */
+	ZB_ZCL_REGISTER_DEVICE_CB(zcl_device_cb);
 	ZB_AF_REGISTER_DEVICE_CTX(&app_ctx);
 	app_clusters_attr_init();
 	endpoint_registered = true;

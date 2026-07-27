@@ -80,6 +80,31 @@ config APP_ZIGBEE_LONG_POLL_INTERVAL_MS
 
 endmenu
 
+menu "Metering calibration (issue #48)"
+
+config APP_METERING_DEFAULT_IMP_PER_KWH
+	int "Default imp/kWh (Metering-cluster Divisor) on cold boot"
+	default 1000
+	range 100 10000
+	help
+	  Value baked into the Metering cluster's Divisor attribute on a
+	  cold boot (nothing persisted in NVS yet) or when the persisted
+	  value has fallen out of the accepted range. Once a Z2M write
+	  sets a new valid value, NVS wins — this default only re-appears
+	  on a factory reset / NVS wipe.
+
+	  Range enforced by src/calibration.c: [100, 10000]. Kept
+	  identical here so the Kconfig menu itself rejects a nonsense
+	  value at build time rather than deferring the reject to a
+	  runtime "fallback to hardcoded 1000" that would surprise the
+	  installer.
+
+	  Design-doc default is 1000 (the row for "Zigbee model" in
+	  seeed-studio-zigbee-energy-meter.md); keep it unless a
+	  build ships against a known non-1000 meter.
+
+endmenu
+
 # Zephyr's Kconfig — pulls in board / driver / kernel options. Keep at
 # the bottom so our project options land in the menu tree above the
 # standard Zephyr tree, not buried under it.
