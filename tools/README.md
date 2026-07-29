@@ -42,3 +42,9 @@ Don't build the USB-dev workflow with `rtt.conf` — it turns off CDC-ACM consol
 
 - `test-join.sh` — force-rejoin cycle: kick the device out via Z2M, watch it re-interview, PASS/FAIL on the resulting interview_state. See known caveat about stale `interview_state` from a prior join reporting SUCCESSFUL falsely.
 - `xiao-pulse.sh` / `xiao-pulse-burst.sh` — drive the D7 pulse-simulator GPIO on the Pi to feed synthetic pulses into the meter.
+
+## Current measurement
+
+- `ina219-sample.sh` / `ina219-sample.py` — one-shot INA219 CSV over the shunt in the Pi 3V3 → XIAO BAT path. See `docs/working/` for captured baselines.
+- `xiao-por.sh` — pulse the BCM 22 relay in the 3V3 rail to force a full POR (clears the CoreSight `CDBGPWRUP` latch that inflates baselines by ~1.5 mA otherwise).
+- `measure-power.sh <label> [s] [hz]` — orchestrator for #35: runs `ina219-sample.py` and `z2m-events.py` in parallel over SSH, produces `ina219.csv` + `events.csv` in `docs/working/measurements/<ts>-<label>/`, and renders `plot.png` with current vs. wall-clock annotated by Z2M events. Requires `pip3 install matplotlib` on the Mac. Pi-side scripts stream over SSH — no install on the Pi ahead of time.
