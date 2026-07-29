@@ -16,6 +16,28 @@ All three depend on the same Pi setup: `rpi-xiao` SSH alias with key auth, `~/xi
 
 Do **not** leave USB plugged into the XIAO while the board is also powered from the Pi 3V3 → BAT rail. Two supplies through different regulators in parallel is not a safe steady state. `flash-swd.sh` explicitly targets that off-USB scenario.
 
+## Debugging without USB
+
+On the INA219 current-measurement rig the XIAO's USB is unplugged (dual-supply hazard on the BAT rail — see `flash-swd.sh` header). CDC-ACM console is not reachable, so `LOG_INF` output would otherwise be invisible. `rtt-tail.sh` streams the firmware log over the same 2-wire SWD interface the Pi already uses for flashing.
+
+Firmware side: build with the `rtt.conf` overlay so `CONFIG_LOG_BACKEND_RTT=y` and the UART log backend is disabled:
+
+```
+west build -p auto -b xiao_ble/nrf52840 -- -DEXTRA_CONF_FILE=rtt.conf
+./tools/flash-swd.sh
+```
+
+Host side:
+
+```
+./tools/rtt-tail.sh [label]   # log lands at seeed-studio-zigbee-energy-meter/docs/working/rtt-<ts>-<label>.log
+./tools/rtt-tail.sh -         # stream to stdout only, no log file
+```
+
+Ctrl+C tears the OpenOCD session down cleanly so the next `flash-swd.sh` / `test-join.sh` isn't blocked by a stale RTT server holding the SWD wires. If a previous run wasn't cleanly interrupted, `rtt-tail.sh` kills any stale openocd on the Pi at startup, so it's safe to just re-run.
+
+Don't build the USB-dev workflow with `rtt.conf` — it turns off CDC-ACM console, which is the whole point of USB iteration.
+
 ## Other helpers
 
 - `test-join.sh` — force-rejoin cycle: kick the device out via Z2M, watch it re-interview, PASS/FAIL on the resulting interview_state. See known caveat about stale `interview_state` from a prior join reporting SUCCESSFUL falsely.

@@ -78,6 +78,19 @@ config APP_ZIGBEE_LONG_POLL_INTERVAL_MS
 	  Not tunable below the ZBOSS floor ZB_PIM_MINIMUM_LONG_POLL_INTERVAL_IN_QS
 	  (1 s). Not useful above ZB_PIM_MAXIMUM_LONG_POLL_INTERVAL (hours).
 
+config APP_ZIGBEE_RX_IDLE_PROBE
+	bool "Periodically log zb_get_rx_on_when_idle() over the log backend"
+	default n
+	help
+	  Diagnostic probe for issue #51 / #8 blocker 1. When enabled, the
+	  app logs zb_get_rx_on_when_idle() after zigbee_configure_sleepy_behavior,
+	  on every ZB_BDB_SIGNAL_STEERING / ZB_BDB_SIGNAL_DEVICE_REBOOT, and on
+	  a repeating 60 s tick from a delayable work item.
+
+	  Off by default — production builds shouldn't emit these lines. Flip
+	  on via rtt.conf (the RTT-over-SWD overlay) when hunting for whether
+	  ZBOSS clobbers our FALSE setting post-join.
+
 endmenu
 
 menu "Metering calibration (issue #48)"

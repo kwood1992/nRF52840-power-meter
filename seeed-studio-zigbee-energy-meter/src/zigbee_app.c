@@ -223,6 +223,52 @@ static void apply_sleepy_poll_intervals_if_joined(zb_ret_t status)
 }
 
 /*
+ * Diagnostic probe for issue #51 / #8-blocker-1: does ZBOSS clobber our
+ * zb_set_rx_on_when_idle(FALSE) setting post-join? Sample the current
+ * value at boot, after each signal event, and on a 60 s tick — under the
+ * hypothesis that a sleepy ED is silently reverting to rx-on-when-idle
+ * once it enters steady state, which would explain the 12.4 mA baseline
+ * seen in the 2026-07-29 INA219 run.
+ *
+ * Gated on CONFIG_APP_ZIGBEE_RX_IDLE_PROBE so production builds don't
+ * emit these lines. Enabled by rtt.conf.
+ */
+#if IS_ENABLED(CONFIG_APP_ZIGBEE_RX_IDLE_PROBE)
+
+#define RX_IDLE_PROBE_INTERVAL K_SECONDS(60)
+
+static void rx_idle_probe_work_handler(struct k_work *work);
+static K_WORK_DELAYABLE_DEFINE(rx_idle_probe_work, rx_idle_probe_work_handler);
+
+static void log_rx_on_when_idle(const char *where)
+{
+	zb_bool_t rx_on = zb_get_rx_on_when_idle();
+
+	LOG_INF("rx-on-when-idle probe [%s]: %s (joined=%d)",
+		where, rx_on ? "TRUE" : "FALSE", joined ? 1 : 0);
+}
+
+static void rx_idle_probe_work_handler(struct k_work *work)
+{
+	ARG_UNUSED(work);
+	log_rx_on_when_idle("tick");
+	k_work_reschedule(&rx_idle_probe_work, RX_IDLE_PROBE_INTERVAL);
+}
+
+static void rx_idle_probe_kick(const char *where)
+{
+	log_rx_on_when_idle(where);
+	k_work_reschedule(&rx_idle_probe_work, RX_IDLE_PROBE_INTERVAL);
+}
+
+#else /* !CONFIG_APP_ZIGBEE_RX_IDLE_PROBE */
+
+static inline void log_rx_on_when_idle(const char *where) { ARG_UNUSED(where); }
+static inline void rx_idle_probe_kick(const char *where) { ARG_UNUSED(where); }
+
+#endif /* CONFIG_APP_ZIGBEE_RX_IDLE_PROBE */
+
+/*
  * ZBOSS calls this from its main loop on every stack event.
  *
  * ALWAYS delegate to `zigbee_default_signal_handler` regardless of
@@ -243,6 +289,9 @@ void zboss_signal_handler(zb_bufid_t bufid)
 		joined = (status == RET_OK);
 		LOG_INF("network steering: %s (status=%d)",
 			joined ? "joined" : "failed", status);
+		if (joined) {
+			rx_idle_probe_kick("post-steering");
+		}
 
 		/* Only paint the outcome if a user-initiated join was in
 		 * flight — auto-rejoin after ZB_ZDO_SIGNAL_LEAVE fires
@@ -270,6 +319,7 @@ void zboss_signal_handler(zb_bufid_t bufid)
 		if (status == RET_OK) {
 			LOG_INF("device reboot: reattached to saved network");
 			joined = true;
+			rx_idle_probe_kick("post-reboot-reattach");
 		}
 		apply_sleepy_poll_intervals_if_joined(status);
 		break;
@@ -537,6 +587,7 @@ int zigbee_app_init(void)
 			ZB_MILLISECONDS_TO_BEACON_INTERVAL(30000));
 	}
 	zigbee_configure_sleepy_behavior(IS_ENABLED(CONFIG_APP_ZIGBEE_SLEEPY_ED));
+	rx_idle_probe_kick("post-configure-sleepy");
 
 	zigbee_enable();
 	return 0;
