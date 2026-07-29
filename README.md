@@ -86,23 +86,44 @@ next to a marking like `1000 imp/kWh`, `800 imp/kWh`, or the equivalent
 persisted in on-device NVS and survives reboots; no reflash needed.
 
 Valid range: **100–10000 imp/kWh**. Writes outside that range are
-silently rolled back (the readback tells the truth).
+silently rolled back on-device (the readback tells the truth); the
+converter also range-clamps in the UI as a first line.
 
-### MQTT (copy-pasteable)
+### Z2M UI (recommended)
 
-Publish to `zigbee2mqtt/<friendly_name>/set`:
+The external converter exposes `imp_per_kwh` as an editable numeric
+field. Open the device in the Z2M frontend → **Exposes** tab, edit
+the *Imp per kwh* field, hit save. In Home Assistant the same field
+appears as a number entity under the device
+(`number.<name>_imp_per_kwh`), settable from a dashboard card or the
+`number.set_value` service.
+
+Read the sleepy-ED timing gotcha below before writing — a UI save
+that lands outside the wake window will error with
+`Timeout after 10000ms`, and the on-device value won't change.
+
+### MQTT (copy-pasteable fallback)
+
+Same primitive, if you'd rather script it:
+
+```json
+{"imp_per_kwh": 800}
+```
+
+Publish to `zigbee2mqtt/<friendly_name>/set`. The converter turns that
+into a raw ZCL write addressed by numeric ID (770 / uint24) so it
+bypasses zigbee-herdsman-converters' spec-based read-only precheck for
+Metering.Divisor. If you ever need to skip the converter entirely
+(e.g. debugging), the underlying wire form is:
 
 ```json
 {"write":{"cluster":"seMetering","payload":{"770":{"value":800,"type":34}}}}
 ```
 
-- `770` = 0x0302 = ZCL attribute ID for `Divisor`. **Address by numeric
-  ID, not by the name `divisor`** — zigbee-herdsman-converters pre-checks
-  the named form against the ZCL spec's access flags and refuses the
-  write, because the standard marks Divisor as read-only. The numeric
-  form skips that lookup and reaches the device.
-- `34` = 0x22 = ZCL data type for uint24 (Divisor's on-wire type).
-- Replace `800` with your meter's imp/kWh.
+- `770` = 0x0302 = ZCL attribute ID for `Divisor`. Address by numeric
+  ID, not by the name `divisor` — the named form gets rejected client-
+  side because the ZCL spec marks Divisor read-only.
+- `34` = 0x22 = ZCL data type for uint24.
 
 Read back to confirm:
 
@@ -112,12 +133,6 @@ Read back to confirm:
 
 Read is fine to address by name — only the write path is affected by
 the ZHC precheck.
-
-### Z2M Dev Console
-
-Open the device in the Z2M frontend → **Dev console** tab → **Write
-attribute**. Cluster = `seMetering`, Attribute = `770` (numeric — for
-the same reason as above), Type = `uint24`, Value = your imp/kWh.
 
 ### Sleepy-ED timing gotcha
 

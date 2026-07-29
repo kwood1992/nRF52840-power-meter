@@ -156,7 +156,22 @@ firmware.
   from the UI work but are un-discoverable. A `m.numeric()` extend
   with a custom toZigbee handler that calls `endpoint.write` with the
   numeric-ID form would make the imp/kWh knob appear on the device
-  page. Filed as a separate issue.
+  page. Filed as issue #50. **Shipped 2026-07-29** in
+  `external-converters/xiao-power-meter.js` — turns out no custom
+  toZigbee is needed: passing `attribute: {ID: 0x0302, type: 0x22}`
+  to `m.numeric()` makes modernExtend itself emit the numeric-ID
+  write on the wire (source: `modernExtend.ts:2751-2867`), which is
+  exactly the ZHC-precheck bypass form. **Bench verification still
+  pending** — needs the .js copied into Z2M's `external_converters/`
+  dir, Z2M restarted, device re-interviewed inside a turbo-poll
+  window, then a write+readback cycle via the *Exposes* tab. Static
+  checks (node syntax, code-path trace) all pass; the failure modes
+  I'd expect if I've got the API wrong are (a) the field doesn't
+  appear at all after re-interview (probably means the numeric()
+  args need adjustment), or (b) it appears but the write returns
+  `NOT_AUTHORIZED` (means the attribute is being addressed by name
+  after all — verify Z2M's debug log shows the numeric-ID form on
+  the wire).
 - Sleepy-ED wake-on-write. See above.
 - Fold in Multiplier writability if a future meter needs
   non-1 multipliers (unlikely — most residential meters are integer

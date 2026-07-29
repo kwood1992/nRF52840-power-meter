@@ -29,6 +29,19 @@
 
 import * as m from 'zigbee-herdsman-converters/lib/modernExtend';
 
+// seMetering.Divisor addressed by numeric ID + type. The ZCL spec
+// marks Divisor read-only, so zigbee-herdsman-converters' generic
+// write path pre-checks the attribute *name* against that spec and
+// rejects the write with NOT_AUTHORIZED before it hits the wire —
+// even though our firmware exposes Divisor with an app-flipped
+// READ_WRITE access flag (see #48). Passing `attribute` as
+// `{ID, type}` bypasses that name-based precheck: modernExtend's
+// numeric() then writes `{770: {value, type: 0x22}}` on the wire,
+// which the ZHC lookup never touches. Same object drives fromZigbee
+// (parses the divisor attribute out of readResponse / attributeReport)
+// and the interview-time read.
+const DIVISOR_ATTR = {ID: 0x0302, type: 0x22};  // 770 / uint24
+
 export default {
     zigbeeModel: ['xiao-power-meter'],
     model: 'xiao-power-meter',
@@ -50,6 +63,46 @@ export default {
             // frontend reads via the `property` field, so exposes
             // would show NA even while the real value is being
             // published. Confirmed 2026-07-24 on bench.
+        }),
+        // Editable meter-constant field. Surfaces the runtime-writable
+        // Divisor from #48 as `imp_per_kwh` on the device's Exposes tab
+        // (and as an HA number entity) so installers don't have to
+        // hand-craft the numeric-ID MQTT payload.
+        //
+        // `reporting: false` skips setting up periodic attribute
+        // reporting for Divisor — the value only changes on explicit
+        // user write, and the firmware doesn't advertise reporting for
+        // this attribute. A one-shot read still happens at interview
+        // time (access includes GET) so the current value populates.
+        //
+        // Range mirrors the firmware's `calibration_is_valid_imp_per_kwh`
+        // predicate (see src/calibration.h) and the Kconfig range on
+        // CONFIG_APP_METERING_DEFAULT_IMP_PER_KWH — out-of-range writes
+        // are additionally rejected + rolled back on-device, but
+        // range-clamping in the UI is the friendlier first line.
+        //
+        // Sleepy-ED gotcha: this device polls its parent every 60 s
+        // in steady state and Z2M's write deadline is 10 s. Writes
+        // land only inside the ~30 s post-reboot turbo-poll window;
+        // otherwise they time out at the herdsman layer. Documented
+        // in the README's "Sleepy-ED timing gotcha" section — a
+        // wake-on-write path is future work (see #50 follow-ups).
+        m.numeric({
+            name: 'imp_per_kwh',
+            cluster: 'seMetering',
+            attribute: DIVISOR_ATTR,
+            description:
+                'Meter pulse constant (imp/kWh). Match this to the value '
+                + "printed on your meter's faceplate. Persists in on-device "
+                + 'NVS across reboots. Requires the device to be awake — '
+                + 'short-press the button before writing if it has been '
+                + 'idle >30 s.',
+            valueMin: 100,
+            valueMax: 10000,
+            valueStep: 1,
+            access: 'ALL',
+            reporting: false,
+            entityCategory: 'config',
         }),
     ],
 };
