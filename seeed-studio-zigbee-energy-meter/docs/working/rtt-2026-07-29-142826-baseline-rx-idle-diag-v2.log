@@ -1,0 +1,90 @@
+[00:00:00.003,875] [0m<inf> ieee802154_nrf5: nRF5 802154 radio initialized[0m
+[00:00:00.004,364] [1;31m<err> LSM6DSL: Failed to initialize chip[0m
+*** Booting nRF Connect SDK v2.9.2-4ab7b98fc76f ***
+*** Using Zephyr OS v3.7.99-aa34a5632971 ***
+[00:00:00.007,629] [1;33m<wrn> usb_device: USB device support already enabled[0m
+[00:00:00.008,148] [0m<inf> hw_pulse_counter: hw pulse counter live: LPCOMP AIN0 refsel=VDD_3_8 HYST=on, bench D7 GPIOTE HITOLO, TIMER2 counter mode[0m
+[00:00:00.013,732] [0m<inf> fs_nvs: 8 Sectors of 4096 bytes[0m
+[00:00:00.014,129] [0m<inf> fs_nvs: alloc wra: 5, b58[0m
+[00:00:00.014,495] [0m<inf> fs_nvs: data wra: 5, 48c[0m
+[00:00:00.014,862] [0m<inf> main: restored accumulator_total=2777095 from NVS[0m
+[00:00:05.018,646] [0m<inf> main: XIAO Zigbee Energy Meter booted[0m
+[00:00:05.019,073] [0m<inf> main: pulse counting: phototransistor on A0 (AIN0) → LPCOMP → PPI → TIMER2, threshold=VDD*3/8 (HYST on)[0m
+[00:00:05.019,683] [0m<inf> main: user button on D6 (P1.11) — short-press (<1 s) join, long-press (>=3 s) factory reset[0m
+[00:00:05.020,233] [0m<inf> main: bench pulse input on D7 (P1.12) — falling-edge via GPIOTE→PPI→TIMER2 (no debounce)[0m
+[00:00:05.020,782] [0m<inf> main: boot-hold: sw0 held for 3000 ms at boot erases the NVS accumulator (4× LED confirm)[0m
+[00:00:05.022,338] [0m<inf> zigbee_app: Metering Divisor: imp/kWh=800 (from NVS)[0m
+[00:00:05.022,766] [0m<inf> zigbee_app_utils: Enabled sleepy end device behavior.[0m
+[00:00:05.023,193] [0m<inf> zigbee_app: rx-on-when-idle probe [post-configure-sleepy]: FALSE (joined=0)[0m
+[00:00:05.049,499] [0m<inf> zigbee_app_utils: Production configuration is not present or invalid (status: -1)[0m
+[00:00:05.050,292] [0m<inf> zigbee_app_utils: Zigbee stack initialized[0m
+[00:00:05.054,016] [0m<inf> zigbee_app_utils: Device started for the first time[0m
+[00:00:05.054,412] [0m<inf> zigbee_app_utils: Start network steering[0m
+[00:00:05.054,809] [0m<inf> zigbee_app_utils: Started network rejoin procedure.[0m
+[00:00:17.703,613] [1;33m<wrn> main: button long-press (4007 ms) — factory reset[0m
+[00:00:17.704,193] [1;33m<wrn> zigbee_app: factory reset — leaving network and erasing NVS[0m
+[00:00:17.712,738] [1;33m<wrn> zigbee_app: ZBOSS thread: invoking zb_bdb_reset_via_local_action[0m
+[00:00:17.768,859] [1;33m<wrn> zigbee_app: left network[0m
+[00:00:17.769,226] [0m<inf> zigbee_app_utils: Network left (leave type: 0)[0m
+[00:00:17.770,141] [0m<inf> zigbee_app: network steering: failed (status=-73)[0m
+[00:00:17.770,568] [0m<inf> zigbee_app_utils: Network steering was not successful (status: -73)[0m
+[00:00:29.120,239] [0m<inf> zigbee_app_utils: Unimplemented signal (signal: 56, status: 0)[0m
+[00:00:29.823,089] [0m<inf> zigbee_app_utils: Unimplemented signal (signal: 55, status: 0)[0m
+[00:00:29.859,649] [0m<inf> zigbee_app: network steering: joined (status=0)[0m
+[00:00:29.860,076] [0m<inf> zigbee_app: rx-on-when-idle probe [post-steering]: FALSE (joined=1)[0m
+[00:00:29.860,626] [0m<inf> zigbee_app: sleepy ED: long_poll=60000 ms, turbo_poll_window=30000 ms[0m
+[00:00:29.861,328] [0m<inf> zigbee_app_utils: Joined network successfully (Extended PAN ID: acfe3ed7bda4880e, PAN ID: 0x0bc8)[0m
+[00:00:29.861,938] [0m<inf> zigbee_app_utils: Network rejoin procedure stopped as NOT scheduled.[0m
+[00:01:29.860,656] [0m<inf> zigbee_app: rx-on-when-idle probe [tick]: FALSE (joined=1)[0m
+[00:02:29.861,206] [0m<inf> zigbee_app: rx-on-when-idle probe [tick]: FALSE (joined=1)[0m
+[00:03:29.861,755] [0m<inf> zigbee_app: rx-on-when-idle probe [tick]: FALSE (joined=1)[0m
+[00:04:29.862,304] [0m<inf> zigbee_app: rx-on-when-idle probe [tick]: FALSE (joined=1)[0m
+[00:05:05.023,864] [0m<inf> main: metering report tick: CurrentSummationDelivered=2777095[0m
+[00:05:05.024,627] [0m<inf> zigbee_app: reporting slot: min_interval=5s max_interval=0s reportable_change=0x000000000000[0m
+[00:05:29.862,854] [0m<inf> zigbee_app: rx-on-when-idle probe [tick]: FALSE (joi[00:00:00.003,845] [0m<inf> ieee802154_nrf5: nRF5 802154 radio initialized[0m
+[00:00:00.004,333] [1;31m<err> LSM6DSL: Failed to initialize chip[0m
+*** Booting nRF Connect SDK v2.9.2-4ab7b98fc76f ***
+*** Using Zephyr OS v3.7.99-aa34a5632971 ***
+[00:00:00.007,598] [1;33m<wrn> usb_device: USB device support already enabled[0m
+[00:00:00.008,117] [0m<inf> hw_pulse_counter: hw pulse counter live: LPCOMP AIN0 refsel=VDD_3_8 HYST=on, bench D7 GPIOTE HITOLO, TIMER2 counter mode[0m
+[00:00:00.013,732] [0m<inf> fs_nvs: 8 Sectors of 4096 bytes[0m
+[00:00:00.014,099] [0m<inf> fs_nvs: alloc wra: 5, b58[0m
+[00:00:00.014,465] [0m<inf> fs_nvs: data wra: 5, 48c[0m
+[00:00:00.014,862] [0m<inf> main: restored accumulator_total=2777095 from NVS[0m
+[00:00:05.018,646] [0m<inf> main: XIAO Zigbee Energy Meter booted[0m
+[00:00:05.019,073] [0m<inf> main: pulse counting: phototransistor on A0 (AIN0) → LPCOMP → PPI → TIMER2, threshold=VDD*3/8 (HYST on)[0m
+[00:00:05.019,683] [0m<inf> main: user button on D6 (P1.11) — short-press (<1 s) join, long-press (>=3 s) factory reset[0m
+[00:00:05.020,233] [0m<inf> main: bench pulse input on D7 (P1.12) — falling-edge via GPIOTE→PPI→TIMER2 (no debounce)[0m
+[00:00:05.020,782] [0m<inf> main: boot-hold: sw0 held for 3000 ms at boot erases the NVS accumulator (4× LED confirm)[0m
+[00:00:05.022,338] [0m<inf> zigbee_app: Metering Divisor: imp/kWh=800 (from NVS)[0m
+[00:00:05.022,766] [0m<inf> zigbee_app_utils: Enabled sleepy end device behavior.[0m
+[00:00:05.023,193] [0m<inf> zigbee_app: rx-on-when-idle probe [post-configure-sleepy]: FALSE (joined=0)[0m
+[00:00:05.051,727] [0m<inf> zigbee_app_utils: Production configuration is not present or invalid (status: -1)[0m
+[00:00:05.052,520] [0m<inf> zigbee_app_utils: Zigbee stack initialized[0m
+[00:00:13.780,853] [0m<inf> zigbee_app_utils: Unimplemented signal (signal: 56, status: 0)[0m
+[00:00:13.782,470] [0m<inf> zigbee_app: device reboot: reattached to saved network[0m
+[00:00:13.782,897] [0m<inf> zigbee_app: rx-on-when-idle probe [post-reboot-reattach]: FALSE (joined=1)[0m
+[00:00:13.783,447] [0m<inf> zigbee_app: sleepy ED: long_poll=60000 ms, turbo_poll_window=30000 ms[0m
+[00:00:13.784,179] [0m<inf> zigbee_app_utils: Joined network successfully on reboot signal (Extended PAN ID: acfe3ed7bda4880e, PAN ID: 0x0bc8)[0m
+[00:00:17.473,144] [1;33m<wrn> main: button long-press (4010 ms) — factory reset[0m
+[00:00:17.473,602] [1;33m<wrn> zigbee_app: factory reset — leaving network and erasing NVS[0m
+[00:00:17.474,273] [1;33m<wrn> zigbee_app: ZBOSS thread: invoking zb_bdb_reset_via_local_action[0m
+[00:00:18.377,197] [1;33m<wrn> zigbee_app: left network[0m
+[00:00:18.377,563] [0m<inf> zigbee_app_utils: Network left (leave type: 0)[0m
+[00:00:18.377,990] [0m<inf> zigbee_app_utils: Started network rejoin procedure.[0m
+[00:00:28.720,672] [0m<inf> zigbee_app_utils: Unimplemented signal (signal: 56, status: 0)[0m
+[00:00:29.464,447] [0m<inf> zigbee_app_utils: Unimplemented signal (signal: 55, status: 0)[0m
+[00:00:29.492,492] [0m<inf> zigbee_app: network steering: joined (status=0)[0m
+[00:00:29.492,950] [0m<inf> zigbee_app: rx-on-when-idle probe [post-steering]: FALSE (joined=1)[0m
+[00:00:29.493,499] [0m<inf> zigbee_app: sleepy ED: long_poll=60000 ms, turbo_poll_window=30000 ms[0m
+[00:00:29.494,201] [0m<inf> zigbee_app_utils: Joined network successfully (Extended PAN ID: acfe3ed7bda4880e, PAN ID: 0x0bc8)[0m
+[00:00:29.494,812] [0m<inf> zigbee_app_utils: Network rejoin procedure stopped as NOT scheduled.[0m
+[00:01:29.493,499] [0m<inf> zigbee_app: rx-on-when-idle probe [tick]: FALSE (joined=1)[0m
+[00:02:29.494,049] [0m<inf> zigbee_app: rx-on-when-idle probe [tick]: FALSE (joined=1)[0m
+[00:03:29.494,598] [0m<inf> zigbee_app: rx-on-when-idle probe [tick]: FALSE (joined=1)[0m
+[00:04:29.495,147] [0m<inf> zigbee_app: rx-on-when-idle probe [tick]: FALSE (joined=1)[0m
+[00:05:05.023,864] [0m<inf> main: metering report tick: CurrentSummationDelivered=2777095[0m
+[00:05:05.024,627] [0m<inf> zigbee_app: reporting slot: min_interval=5s max_interval=0s reportable_change=0x000000000000[0m
+[00:05:25.361,450] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2777096[0m
+[00:05:25.362,945] [0m<inf> main: persisted accumulator_total=2777096[0m
+[00:05:29.495,697] [0m<inf> zigbee_app: rx-on-when-idle probe [tick]: FALSE (joined=1)[0m
