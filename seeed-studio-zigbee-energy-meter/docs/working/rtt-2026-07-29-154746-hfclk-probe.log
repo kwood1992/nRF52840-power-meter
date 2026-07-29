@@ -1,0 +1,334 @@
+00:00.016,021] [0m<inf> main: bench pulse input on D7 (P1.12) — falling-edge via GPIOTE→PPI→TIMER2 (no debounce)[0m
+[00:00:00.016,540] [0m<inf> main: boot-hold: sw0 held for 3000 ms at boot erases the NVS accumulator (4× LED confirm)[0m
+[00:00:00.018,096] [0m<inf> zigbee_app: Metering Divisor: imp/kWh=800 (from NVS)[0m
+[00:00:00.018,524] [0m<inf> zigbee_app_utils: Enabled sleepy end device behavior.[0m
+[00:00:00.018,920] [0m<inf> zigbee_app: rx-on-when-idle probe [post-configure-sleepy]: FALSE (joined=0)[0m
+[00:00:00.019,439] [0m<inf> zigbee_app: hfclk probe [post-configure-sleepy]: HFCLKSTAT=0x00010000 HFCLKRUN=0x00000000 xtal_running=0[0m
+[00:00:00.041,809] [0m<inf> zigbee_app_utils: Production configuration is not present or invalid (status: -1)[0m
+[00:00:00.042,572] [0m<inf> zigbee_app_utils: Zigbee stack initialized[0m
+[00:00:00.220,336] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2777638[0m
+[00:00:00.244,995] [0m<inf> main: persisted accumulator_total=2777638[0m
+[00:00:00.645,599] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2777639[0m
+[00:00:01.246,398] [0m<inf> main: pulse(s) counted: delta=2 accumulator_total=2777641[0m
+[00:00:01.647,125] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2777642[0m
+[00:00:02.247,894] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2777643[0m
+[00:00:02.648,620] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2777644[0m
+[00:00:03.249,420] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2777645[0m
+[00:00:03.650,115] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2777646[0m
+[00:00:04.250,915] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2777647[0m
+[00:00:04.851,684] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2777648[0m
+[00:00:05.252,380] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2777649[0m
+[00:00:05.853,179] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2777650[0m
+[00:00:06.854,125] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2777651[0m
+[00:00:07.254,821] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2777652[0m
+[00:00:07.855,590] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2777653[0m
+[00:00:08.756,866] [0m<inf> zigbee_app_utils: Unimplemented signal (signal: 56, status: 0)[0m
+[00:00:08.758,453] [0m<inf> zigbee_app: device reboot: reattached to saved network[0m
+[00:00:08.758,880] [0m<inf> zigbee_app: rx-on-when-idle probe [post-reboot-reattach]: FALSE (joined=1)[0m
+[00:00:08.759,399] [0m<inf> zigbee_app: hfclk probe [post-reboot-reattach]: HFCLKSTAT=0x00010000 HFCLKRUN=0x00000000 xtal_running=0[0m
+[00:00:08.760,040] [0m<inf> zigbee_app: sleepy ED: long_poll=60000 ms, turbo_poll_window=30000 ms[0m
+[00:00:08.760,711] [0m<inf> zigbee_app_utils: Joined network successfully on reboot signal (Extended PAN ID: acfe3ed7bda4880e, PAN ID: 0x0bc8)[0m
+[00:00:08.856,506] [0m<inf> main: pulse(s) counted: delta=1 a[00:00:00.003,784] [0m<inf> ieee802154_nrf5: nRF5 802154 radio initialized[0m
+[00:00:00.004,241] [1;31m<err> LSM6DSL: Failed to initialize chip[0m
+*** Booting nRF Connect SDK v2.9.2-4ab7b98fc76f ***
+*** Using Zephyr OS v3.7.99-aa34a5632971 ***
+[00:00:00.007,507] [0m<inf> hw_pulse_counter: hw pulse counter live: LPCOMP AIN0 refsel=VDD_3_8 HYST=on, bench D7 GPIOTE HITOLO, TIMER2 counter mode[0m
+[00:00:00.012,969] [0m<inf> fs_nvs: 8 Sectors of 4096 bytes[0m
+[00:00:00.013,336] [0m<inf> fs_nvs: alloc wra: 5, af0[0m
+[00:00:00.013,671] [0m<inf> fs_nvs: data wra: 5, 4f4[0m
+[00:00:00.014,068] [0m<inf> main: restored accumulator_total=2777944 from NVS[0m
+[00:00:00.014,495] [0m<inf> main: XIAO Zigbee Energy Meter booted[0m
+[00:00:00.014,862] [0m<inf> main: pulse counting: phototransistor on A0 (AIN0) → LPCOMP → PPI → TIMER2, threshold=VDD*3/8 (HYST on)[0m
+[00:00:00.015,441] [0m<inf> main: user button on D6 (P1.11) — short-press (<1 s) join, long-press (>=3 s) factory reset[0m
+[00:00:00.015,991] [0m<inf> main: bench pulse input on D7 (P1.12) — falling-edge via GPIOTE→PPI→TIMER2 (no debounce)[0m
+[00:00:00.016,510] [0m<inf> main: boot-hold: sw0 held for 3000 ms at boot erases the NVS accumulator (4× LED confirm)[0m
+[00:00:00.018,096] [0m<inf> zigbee_app: Metering Divisor: imp/kWh=800 (from NVS)[0m
+[00:00:00.018,524] [0m<inf> zigbee_app_utils: Enabled sleepy end device behavior.[0m
+[00:00:00.018,920] [0m<inf> zigbee_app: rx-on-when-idle probe [post-configure-sleepy]: FALSE (joined=0)[0m
+[00:00:00.019,439] [0m<inf> zigbee_app: hfclk probe [post-configure-sleepy]: HFCLKSTAT=0x00010000 HFCLKRUN=0x00000000 xtal_running=0[0m
+[00:00:00.046,295] [0m<inf> zigbee_app_utils: Production configuration is not present or invalid (status: -1)[0m
+[00:00:00.047,058] [0m<inf> zigbee_app_utils: Zigbee stack initialized[0m
+[00:00:00.220,306] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2777945[0m
+[00:00:00.243,072] [0m<inf> main: persisted accumulator_total=2777945[0m
+[00:00:00.643,707] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2777946[0m
+[00:00:03.845,428] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2777947[0m
+[00:00:04.246,154] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2777948[0m
+[00:00:05.020,141] [0m<inf> zigbee_app_utils: Unimplemented signal (signal: 66, status: 0)[0m
+[00:00:05.847,290] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2777949[0m
+[00:00:06.247,985] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2777950[0m
+[00:00:06.848,754] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2777951[0m
+[00:00:07.249,481] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2777952[0m
+[00:00:07.850,219] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2777953[0m
+[00:00:08.250,946] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2777954[0m
+[00:00:08.769,256] [0m<inf> zigbee_app_utils: Unimplemented signal (signal: 56, status: 0)[0m
+[00:00:08.770,843] [0m<inf> zigbee_app: device reboot: reattached to saved network[0m
+[00:00:08.771,270] [0m<inf> zigbee_app: rx-on-when-idle probe [post-reboot-reattach]: FALSE (joined=1)[0m
+[00:00:08.771,789] [0m<inf> zigbee_app: hfclk probe [post-reboot-reattach]: HFCLKSTAT=0x00010000 HFCLKRUN=0x00000000 xtal_running=0[0m
+[00:00:08.772,430] [0m<inf> zigbee_app: sleepy ED: long_poll=60000 ms, turbo_poll_window=30000 ms[0m
+[00:00:08.773,132] [0m<inf> zigbee_app_utils: Joined network successfully on reboot signal (Extended PAN ID: acfe3ed7bda4880e, PAN ID: 0x0bc8)[0m
+[00:00:08.851,715] [0m<inf> main: pulse(s) counted: delta=2 accumulator_total=2777956[0m
+[00:00:09.452,484] [0m<inf> main: pulse(s) counted: delta=2 accumulator_total=2777958[0m
+[00:00:09.653,106] [0m<inf> main: pulse(s) counted: delta=2 accumulator_total=2777960[0m
+[00:00:09.853,729] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2777961[0m
+[00:00:10.054,351] [0m<inf> main: pulse(s) counted: delta=2 accumulator_total=2777963[0m
+[00:00:10.254,974] [0m<inf> main: pulse(s) counted: delta=2 accumulator_total=2777965[0m
+[00:00:10.455,596] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2777966[0m
+[00:00:10.656,219] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2777967[0m
+[00:00:11.056,915] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2777968[0m
+[00:00:11.657,684] [0m<inf> main: pulse(s) counted: delta=2 accumulator_total=2777970[0m
+[00:00:11.858,306] [0m<inf> main: pulse(s) counted: delta=2 accumulator_total=2777972[0m
+[00:00:12.058,929] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2777973[0m
+[00:00:12.259,552] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2777974[0m
+[00:00:12.460,174] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2777975[0m
+[00:00:12.860,870] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2777976[0m
+[00:00:13.261,566] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2777977[0m
+[00:00:14.062,408] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2777978[0m
+[00:00:15.263,397] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2777979[0m
+[00:00:16.864,532] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2777980[0m
+[00:00:22.267,059] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2777981[0m
+[00:00:22.667,755] [0m<inf> main: pulse(s) counted: delta=9 accumulator_total=2777990[0m
+[00:00:22.868,377] [0m<inf> main: pulse(s) counted: delta=24 accumulator_total=2778014[0m
+[00:00:23.069,000] [0m<inf> main: pulse(s) counted: delta=6 accumulator_total=2778020[0m
+[00:00:23.269,622] [0m<inf> main: pulse(s) counted: delta=11 accumulator_total=2778031[0m
+[00:00:23.470,245] [0m<inf> main: pulse(s) counted: delta=6 accumulator_total=2778037[0m
+[00:00:23.670,867] [0m<inf> main: pulse(s) counted: delta=8 accumulator_total=2778045[0m
+[00:00:23.672,332] [0m<inf> main: persisted accumulator_total=2778045[0m
+[00:00:23.872,894] [0m<inf> main: pulse(s) counted: delta=12 accumulator_total=2778057[0m
+[00:00:24.073,516] [0m<inf> main: pulse(s) counted: delta=5 accumulator_total=2778062[0m
+[00:00:24.274,139] [0m<inf> main: pulse(s) counted: delta=2 accumulator_total=2778064[0m
+[00:00:24.474,761] [0m<inf> main: pulse(s) counted: delta=3 accumulator_total=2778067[0m
+[00:00:24.875,457] [0m<inf> main: pulse(s) counted: delta=2 accumulator_total=2778069[0m
+[00:00:25.276,153] [0m<inf> main: pulse(s) counted: delta=2 accumulator_total=2778071[0m
+[00:00:25.476,776] [0m<inf> main: pulse(s) counted: delta=2 accumulator_total=2778073[0m
+[00:00:25.677,398] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2778074[0m
+[00:00:26.078,094] [0m<inf> main: pulse(s) counted: delta=3 accumulator_total=2778077[0m
+[00:00:27.279,083] [0m<inf> main: pulse(s) counted: delta=3 accumulator_total=2778080[0m
+[00:00:28.880,218] [0m<inf> main: pulse(s) counted: delta=3 accumulator_total=2778083[0m
+[00:00:31.481,719] [0m<inf> main: pulse(s) counted: delta=3 accumulator_total=2778086[0m
+[00:00:37.484,466] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2778087[0m
+[00:00:40.486,114] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2778088[0m
+[00:00:53.091,278] [0m<inf> main: pulse(s) counted: delta=8 accumulator_total=2778096[0m
+[00:00:53.291,900] [0m<inf> main: pulse(s) counted: delta=10 accumulator_total=2778106[0m
+[00:00:53.492,523] [0m<inf> main: pulse(s) counted: delta=7 accumulator_total=2778113[0m
+[00:00:53.693,145] [0m<inf> main: pulse(s) counted: delta=3 accumulator_total=2778116[0m
+[00:00:53.893,768] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2778117[0m
+[00:00:56.695,343] [0m<inf> main: pulse(s) counted: delta=8 accumulator_total=2778125[0m
+[00:00:56.895,965] [0m<inf> main: pulse(s) counted: delta=5 accumulator_total=2778130[0m
+[00:00:57.096,588] [0m<inf> main: pulse(s) counted: delta=5 accumulator_total=2778135[0m
+[00:00:57.297,210] [0m<inf> main: pulse(s) counted: delta=18 accumulator_total=2778153[0m
+[00:00:57.298,675] [0m<inf> main: persisted accumulator_total=2778153[0m
+[00:00:57.499,237] [0m<inf> main: pulse(s) counted: delta=14 accumulator_total=2778167[0m
+[00:00:57.699,859] [0m<inf> main: pulse(s) counted: delta=18 accumulator_total=2778185[0m
+[00:00:57.900,482] [0m<inf> main: pulse(s) counted: delta=21 accumulator_total=2778206[0m
+[00:00:58.301,177] [0m<inf> main: pulse(s) counted: delta=3 accumulator_total=2778209[0m
+[00:00:58.701,873] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2778210[0m
+[00:00:58.902,496] [0m<inf> main: pulse(s) counted: delta=31 accumulator_total=2778241[0m
+[00:00:59.103,149] [0m<inf> main: pulse(s) counted: delta=67 accumulator_total=2778308[0m
+[00:00:59.104,614] [0m<inf> main: persisted accumulator_total=2778308[0m
+[00:00:59.305,175] [0m<inf> main: pulse(s) counted: delta=23 accumulator_total=2778331[0m
+[00:00:59.505,798] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2778332[0m
+[00:00:59.706,420] [0m<inf> main: pulse(s) counted: delta=28 accumulator_total=2778360[0m
+[00:00:59.907,043] [0m<inf> main: pulse(s) counted: delta=20 accumulator_total=2778380[0m
+[00:01:00.107,666] [0m<inf> main: pulse(s) counted: delta=22 accumulator_total=2778402[0m
+[00:01:00.308,288] [0m<inf> main: pulse(s) counted: delta=11 accumulator_total=2778413[0m
+[00:01:00.309,753] [0m<inf> main: persisted accumulator_total=2778413[0m
+[00:01:08.772,460] [0m<inf> zigbee_app: rx-on-when-idle probe [tick]: FALSE (joined=1)[0m
+[00:01:08.772,918] [0m<inf> zigbee_app: hfclk probe [tick]: HFCLKSTAT=0x00010000 HFCLKRUN=0x00000000 xtal_running=0[0m
+[00:01:24.719,207] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2778414[0m
+[00:01:30.121,734] [0m<inf> main: pulse(s) counted: delta=5 accumulator_total=2778419[0m
+[00:01:30.322,357] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2778420[0m
+[00:01:35.124,664] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2778421[0m
+[00:01:37.125,946] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2778422[0m
+[00:01:50.131,256] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2778423[0m
+[00:01:50.331,878] [0m<inf> main: pulse(s) counted: delta=7 accumulator_total=2778430[0m
+[00:01:50.532,501] [0m<inf> main: pulse(s) counted: delta=6 accumulator_total=2778436[0m
+[00:01:50.733,123] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2778437[0m
+[00:01:50.933,746] [0m<inf> main: pulse(s) counted: delta=2 accumulator_total=2778439[0m
+[00:01:51.134,368] [0m<inf> main: pulse(s) counted: delta=7 accumulator_total=2778446[0m
+[00:01:51.334,991] [0m<inf> main: pulse(s) counted: delta=3 accumulator_total=2778449[0m
+[00:01:51.535,614] [0m<inf> main: pulse(s) counted: delta=2 accumulator_total=2778451[0m
+[00:01:51.736,236] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2778452[0m
+[00:01:56.938,690] [0m<inf> main: pulse(s) counted: delta=5 accumulator_total=2778457[0m
+[00:01:57.139,312] [0m<inf> main: pulse(s) counted: delta=7 accumulator_total=2778464[0m
+[00:01:57.339,935] [0m<inf> main: pulse(s) counted: delta=13 accumulator_total=2778477[0m
+[00:01:57.540,557] [0m<inf> main: pulse(s) counted: delta=14 accumulator_total=2778491[0m
+[00:01:57.741,180] [0m<inf> main: pulse(s) counted: delta=6 accumulator_total=2778497[0m
+[00:01:57.941,802] [0m<inf> main: pulse(s) counted: delta=13 accumulator_total=2778510[0m
+[00:01:58.142,425] [0m<inf> main: pulse(s) counted: delta=6 accumulator_total=2778516[0m
+[00:01:58.143,890] [0m<inf> main: persisted accumulator_total=2778516[0m
+[00:01:58.544,525] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2778517[0m
+[00:01:58.945,220] [0m<inf> main: pulse(s) counted: delta=4 accumulator_total=2778521[0m
+[00:01:59.145,843] [0m<inf> main: pulse(s) counted: delta=9 accumulator_total=2778530[0m
+[00:01:59.346,466] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2778531[0m
+[00:01:59.547,088] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2778532[0m
+[00:02:03.749,176] [0m<inf> main: pulse(s) counted: delta=3 accumulator_total=2778535[0m
+[00:02:03.949,798] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2778536[0m
+[00:02:03.950,500] [0m<inf> zigbee_app: reporting slot: min_interval=10s max_interval=65000s reportable_change=0x000000000050[0m
+[00:02:04.150,421] [0m<inf> main: pulse(s) counted: delta=13 accumulator_total=2778549[0m
+[00:02:04.351,043] [0m<inf> main: pulse(s) counted: delta=5 accumulator_total=2778554[0m
+[00:02:04.551,666] [0m<inf> main: pulse(s) counted: delta=2 accumulator_total=2778556[0m
+[00:02:04.752,288] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2778557[0m
+[00:02:06.153,350] [0m<inf> main: pulse(s) counted: delta=4 accumulator_total=2778561[0m
+[00:02:06.353,973] [0m<inf> main: pulse(s) counted: delta=2 accumulator_total=2778563[0m
+[00:02:06.754,669] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2778564[0m
+[00:02:06.955,291] [0m<inf> main: pulse(s) counted: delta=4 accumulator_total=2778568[0m
+[00:02:07.155,914] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2778569[0m
+[00:02:07.356,536] [0m<inf> main: pulse(s) counted: delta=10 accumulator_total=2778579[0m
+[00:02:07.557,159] [0m<inf> main: pulse(s) counted: delta=21 accumulator_total=2778600[0m
+[00:02:07.757,781] [0m<inf> main: pulse(s) counted: delta=20 accumulator_total=2778620[0m
+[00:02:07.759,246] [0m<inf> main: persisted accumulator_total=2778620[0m
+[00:02:07.959,808] [0m<inf> main: pulse(s) counted: delta=22 accumulator_total=2778642[0m
+[00:02:08.160,430] [0m<inf> main: pulse(s) counted: delta=18 accumulator_total=2778660[0m
+[00:02:08.361,053] [0m<inf> main: pulse(s) counted: delta=8 accumulator_total=2778668[0m
+[00:02:08.773,559] [0m<inf> zigbee_app: rx-on-when-idle probe [tick]: FALSE (joined=1)[0m
+[00:02:08.774,017] [0m<inf> zigbee_app: hfclk probe [tick]: HFCLKSTAT=0x00010000 HFCLKRUN=0x00000000 xtal_running=0[0m
+[00:02:12.963,287] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2778669[0m
+[00:02:14.164,276] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2778670[0m
+[00:02:14.364,898] [0m<inf> main: pulse(s) counted: delta=2 accumulator_total=2778672[0m
+[00:02:16.366,180] [0m<inf> main: pulse(s) counted: delta=11 accumulator_total=2778683[0m
+[00:02:16.566,802] [0m<inf> main: pulse(s) counted: delta=8 accumulator_total=2778691[0m
+[00:02:17.967,864] [0m<inf> main: pulse(s) counted: delta=2 accumulator_total=2778693[0m
+[00:02:18.168,487] [0m<inf> main: pulse(s) counted: delta=3 accumulator_total=2778696[0m
+[00:02:18.369,110] [0m<inf> main: pulse(s) counted: delta=18 accumulator_total=2778714[0m
+[00:02:18.569,732] [0m<inf> main: pulse(s) counted: delta=15 accumulator_total=2778729[0m
+[00:02:18.571,197] [0m<inf> main: persisted accumulator_total=2778729[0m
+[00:02:18.771,759] [0m<inf> main: pulse(s) counted: delta=3 accumulator_total=2778732[0m
+[00:02:19.572,601] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2778733[0m
+[00:02:19.773,223] [0m<inf> main: pulse(s) counted: delta=4 accumulator_total=2778737[0m
+[00:02:27.976,776] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2778738[0m
+[00:02:28.177,398] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2778739[0m
+[00:02:28.378,021] [0m<inf> main: pulse(s) counted: delta=6 accumulator_total=2778745[0m
+[00:02:28.578,643] [0m<inf> main: pulse(s) counted: delta=4 accumulator_total=2778749[0m
+[00:02:28.779,266] [0m<inf> main: pulse(s) counted: delta=12 accumulator_total=2778761[0m
+[00:02:28.979,888] [0m<inf> main: pulse(s) counted: delta=3 accumulator_total=2778764[0m
+[00:02:29.180,511] [0m<inf> main: pulse(s) counted: delta=4 accumulator_total=2778768[0m
+[00:02:29.381,134] [0m<inf> main: pulse(s) counted: delta=3 accumulator_total=2778771[0m
+[00:02:29.581,756] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2778772[0m
+[00:02:30.782,745] [0m<inf> main: pulse(s) counted: delta=2 accumulator_total=2778774[0m
+[00:02:30.983,367] [0m<inf> main: pulse(s) counted: delta=8 accumulator_total=2778782[0m
+[00:02:31.183,990] [0m<inf> main: pulse(s) counted: delta=20 accumulator_total=2778802[0m
+[00:02:31.384,613] [0m<inf> main: pulse(s) counted: delta=13 accumulator_total=2778815[0m
+[00:02:31.585,235] [0m<inf> main: pulse(s) counted: delta=11 accumulator_total=2778826[0m
+[00:02:31.785,858] [0m<inf> main: pulse(s) counted: delta=3 accumulator_total=2778829[0m
+[00:02:31.787,322] [0m<inf> main: persisted accumulator_total=2778829[0m
+[00:02:31.987,884] [0m<inf> main: pulse(s) counted: delta=10 accumulator_total=2778839[0m
+[00:02:32.788,726] [0m<inf> main: pulse(s) counted: delta=16 accumulator_total=2778855[0m
+[00:02:32.989,349] [0m<inf> main: pulse(s) counted: delta=18 accumulator_total=2778873[0m
+[00:02:33.189,971] [0m<inf> main: pulse(s) counted: delta=4 accumulator_total=2778877[0m
+[00:02:33.390,594] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2778878[0m
+[00:02:34.191,436] [0m<inf> main: pulse(s) counted: delta=5 accumulator_total=2778883[0m
+[00:02:34.392,059] [0m<inf> main: pulse(s) counted: delta=2 accumulator_total=2778885[0m
+[00:02:34.592,681] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2778886[0m
+[00:02:34.793,304] [0m<inf> main: pulse(s) counted: delta=10 accumulator_total=2778896[0m
+[00:02:34.993,927] [0m<inf> main: pulse(s) counted: delta=23 accumulator_total=2778919[0m
+[00:02:35.194,549] [0m<inf> main: pulse(s) counted: delta=13 accumulator_total=2778932[0m
+[00:02:35.196,014] [0m<inf> main: persisted accumulator_total=2778932[0m
+[00:02:35.396,606] [0m<inf> main: pulse(s) counted: delta=17 accumulator_total=2778949[0m
+[00:02:35.597,229] [0m<inf> main: pulse(s) counted: delta=21 accumulator_total=2778970[0m
+[00:02:35.797,851] [0m<inf> main: pulse(s) counted: delta=19 accumulator_total=2778989[0m
+[00:02:35.998,474] [0m<inf> main: pulse(s) counted: delta=5 accumulator_total=2778994[0m
+[00:02:36.399,169] [0m<inf> main: pulse(s) counted: delta=15 accumulator_total=2779009[0m
+[00:02:36.599,792] [0m<inf> main: pulse(s) counted: delta=2 accumulator_total=2779011[0m
+[00:02:38.200,927] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2779012[0m
+[00:02:38.801,696] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2779013[0m
+[00:02:39.002,319] [0m<inf> main: pulse(s) counted: delta=3 accumulator_total=2779016[0m
+[00:02:42.204,040] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2779017[0m
+[00:02:51.608,032] [0m<inf> main: pulse(s) counted: delta=2 accumulator_total=2779019[0m
+[00:02:53.409,240] [0m<inf> main: pulse(s) counted: delta=5 accumulator_total=2779024[0m
+[00:02:53.609,863] [0m<inf> main: pulse(s) counted: delta=16 accumulator_total=2779040[0m
+[00:02:53.611,328] [0m<inf> main: persisted accumulator_total=2779040[0m
+[00:02:54.412,109] [0m<inf> main: pulse(s) counted: delta=8 accumulator_total=2779048[0m
+[00:02:54.612,731] [0m<inf> main: pulse(s) counted: delta=28 accumulator_total=2779076[0m
+[00:02:55.013,427] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2779077[0m
+[00:02:55.214,050] [0m<inf> main: pulse(s) counted: delta=8 accumulator_total=2779085[0m
+[00:02:55.414,672] [0m<inf> main: pulse(s) counted: delta=16 accumulator_total=2779101[0m
+[00:02:55.615,295] [0m<inf> main: pulse(s) counted: delta=20 accumulator_total=2779121[0m
+[00:02:55.815,917] [0m<inf> main: pulse(s) counted: delta=24 accumulator_total=2779145[0m
+[00:02:55.817,382] [0m<inf> main: persisted accumulator_total=2779145[0m
+[00:02:56.017,944] [0m<inf> main: pulse(s) counted: delta=22 accumulator_total=2779167[0m
+[00:02:56.218,566] [0m<inf> main: pulse(s) counted: delta=23 accumulator_total=2779190[0m
+[00:02:56.419,189] [0m<inf> main: pulse(s) counted: delta=14 accumulator_total=2779204[0m
+[00:02:57.820,251] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2779205[0m
+[00:02:58.220,947] [0m<inf> main: pulse(s) counted: delta=5 accumulator_total=2779210[0m
+[00:02:58.421,569] [0m<inf> main: pulse(s) counted: delta=14 accumulator_total=2779224[0m
+[00:02:59.022,338] [0m<inf> main: pulse(s) counted: delta=9 accumulator_total=2779233[0m
+[00:02:59.222,961] [0m<inf> main: pulse(s) counted: delta=19 accumulator_total=2779252[0m
+[00:02:59.224,426] [0m<inf> main: persisted accumulator_total=2779252[0m
+[00:02:59.424,987] [0m<inf> main: pulse(s) counted: delta=26 accumulator_total=2779278[0m
+[00:02:59.625,610] [0m<inf> main: pulse(s) counted: delta=2 accumulator_total=2779280[0m
+[00:02:59.826,232] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2779281[0m
+[00:03:00.026,855] [0m<inf> main: pulse(s) counted: delta=8 accumulator_total=2779289[0m
+[00:03:00.227,478] [0m<inf> main: pulse(s) counted: delta=23 accumulator_total=2779312[0m
+[00:03:00.428,100] [0m<inf> main: pulse(s) counted: delta=25 accumulator_total=2779337[0m
+[00:03:00.628,723] [0m<inf> main: pulse(s) counted: delta=9 accumulator_total=2779346[0m
+[00:03:00.829,345] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2779347[0m
+[00:03:02.230,407] [0m<inf> main: pulse(s) counted: delta=2 accumulator_total=2779349[0m
+[00:03:02.431,030] [0m<inf> main: pulse(s) counted: delta=11 accumulator_total=2779360[0m
+[00:03:02.432,495] [0m<inf> main: persisted accumulator_total=2779360[0m
+[00:03:02.633,056] [0m<inf> main: pulse(s) counted: delta=12 accumulator_total=2779372[0m
+[00:03:02.833,679] [0m<inf> main: pulse(s) counted: delta=15 accumulator_total=2779387[0m
+[00:03:03.034,301] [0m<inf> main: pulse(s) counted: delta=16 accumulator_total=2779403[0m
+[00:03:03.234,924] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2779404[0m
+[00:03:03.635,620] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2779405[0m
+[00:03:03.836,242] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2779406[0m
+[00:03:04.036,865] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2779407[0m
+[00:03:04.237,487] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2779408[0m
+[00:03:04.438,110] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2779409[0m
+[00:03:04.438,812] [0m<inf> zigbee_app: reporting slot: min_interval=10s max_interval=65000s reportable_change=0x000000000050[0m
+[00:03:04.638,732] [0m<inf> main: pulse(s) counted: delta=3 accumulator_total=2779412[0m
+[00:03:04.839,355] [0m<inf> main: pulse(s) counted: delta=3 accumulator_total=2779415[0m
+[00:03:05.039,978] [0m<inf> main: pulse(s) counted: delta=3 accumulator_total=2779418[0m
+[00:03:05.240,600] [0m<inf> main: pulse(s) counted: delta=2 accumulator_total=2779420[0m
+[00:03:05.441,223] [0m<inf> main: pulse(s) counted: delta=9 accumulator_total=2779429[0m
+[00:03:05.641,845] [0m<inf> main: pulse(s) counted: delta=10 accumulator_total=2779439[0m
+[00:03:05.842,468] [0m<inf> main: pulse(s) counted: delta=10 accumulator_total=2779449[0m
+[00:03:06.043,090] [0m<inf> main: pulse(s) counted: delta=3 accumulator_total=2779452[0m
+[00:03:06.243,713] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2779453[0m
+[00:03:06.444,335] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2779454[0m
+[00:03:08.774,658] [0m<inf> zigbee_app: rx-on-when-idle probe [tick]: FALSE (joined=1)[0m
+[00:03:08.775,115] [0m<inf> zigbee_app: hfclk probe [tick]: HFCLKSTAT=0x00010000 HFCLKRUN=0x00000000 xtal_running=0[0m
+[00:03:12.046,936] [0m<inf> main: pulse(s) counted: delta=2 accumulator_total=2779456[0m
+[00:03:12.247,558] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2779457[0m
+[00:03:12.448,181] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2779458[0m
+[00:03:12.648,803] [0m<inf> main: pulse(s) counted: delta=3 accumulator_total=2779461[0m
+[00:03:12.650,268] [0m<inf> main: persisted accumulator_total=2779461[0m
+[00:03:12.850,830] [0m<inf> main: pulse(s) counted: delta=2 accumulator_total=2779463[0m
+[00:03:13.051,452] [0m<inf> main: pulse(s) counted: delta=2 accumulator_total=2779465[0m
+[00:03:13.852,294] [0m<inf> main: pulse(s) counted: delta=12 accumulator_total=2779477[0m
+[00:03:14.252,990] [0m<inf> main: pulse(s) counted: delta=6 accumulator_total=2779483[0m
+[00:03:14.853,759] [0m<inf> main: pulse(s) counted: delta=8 accumulator_total=2779491[0m
+[00:03:15.054,382] [0m<inf> main: pulse(s) counted: delta=11 accumulator_total=2779502[0m
+[00:03:15.255,004] [0m<inf> main: pulse(s) counted: delta=8 accumulator_total=2779510[0m
+[00:03:15.455,627] [0m<inf> main: pulse(s) counted: delta=2 accumulator_total=2779512[0m
+[00:03:15.656,250] [0m<inf> main: pulse(s) counted: delta=3 accumulator_total=2779515[0m
+[00:03:15.856,872] [0m<inf> main: pulse(s) counted: delta=19 accumulator_total=2779534[0m
+[00:03:16.057,495] [0m<inf> main: pulse(s) counted: delta=15 accumulator_total=2779549[0m
+[00:03:16.258,117] [0m<inf> main: pulse(s) counted: delta=24 accumulator_total=2779573[0m
+[00:03:16.259,582] [0m<inf> main: persisted accumulator_total=2779573[0m
+[00:03:16.460,144] [0m<inf> main: pulse(s) counted: delta=18 accumulator_total=2779591[0m
+[00:03:16.660,766] [0m<inf> main: pulse(s) counted: delta=27 accumulator_total=2779618[0m
+[00:03:16.861,389] [0m<inf> main: pulse(s) counted: delta=15 accumulator_total=2779633[0m
+[00:03:17.062,011] [0m<inf> main: pulse(s) counted: delta=2 accumulator_total=2779635[0m
+[00:03:17.262,634] [0m<inf> main: pulse(s) counted: delta=5 accumulator_total=2779640[0m
+[00:03:17.463,256] [0m<inf> main: pulse(s) counted: delta=5 accumulator_total=2779645[0m
+[00:03:18.464,172] [0m<inf> main: pulse(s) counted: delta=6 accumulator_total=2779651[0m
+[00:03:18.664,794] [0m<inf> main: pulse(s) counted: delta=4 accumulator_total=2779655[0m
+[00:03:19.265,563] [0m<inf> main: pulse(s) counted: delta=25 accumulator_total=2779680[0m
+[00:03:19.267,028] [0m<inf> main: persisted accumulator_total=2779680[0m
+[00:03:19.467,590] [0m<inf> main: pulse(s) counted: delta=16 accumulator_total=2779696[0m
+[00:03:19.668,212] [0m<inf> main: pulse(s) counted: delta=11 accumulator_total=2779707[0m
+[00:03:19.868,835] [0m<inf> main: pulse(s) counted: delta=22 accumulator_total=2779729[0m
+[00:03:20.069,458] [0m<inf> main: pulse(s) counted: delta=11 accumulator_total=2779740[0m
+[00:03:25.071,838] [0m<inf> main: pulse(s) counted: delta=2 accumulator_total=2779742[0m
+[00:03:25.272,460] [0m<inf> main: pulse(s) counted: delta=2 accumulator_total=2779744[0m
+[00:03:31.075,134] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2779745[0m
+[00:03:31.875,976] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2779746[0m
+[00:03:32.076,599] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2779747[0m
+[00:03:32.477,294] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2779748[0m
+[00:03:33.078,063] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2779749[0m
+[00:04:08.775,756] [0m<inf> zigbee_app: rx-on-when-idle probe [tick]: FALSE (joined=1)[0m
+[00:04:08.776,214] [0m<inf> zigbee_app: hfclk probe [tick]: HFCLKSTAT=0x00010000 HFCLKRUN=0x00000000 xtal_running=0[0m
+[00:05:00.020,202] [0m<inf> main: metering report tick: CurrentSummationDelivered=2779749[0m
+[00:05:00.020,904] [0m<inf> zigbee_app: reporting slot: min_interval=10s max_interval=65000s reportable_change=0x000000000050[0m
+[00:05:08.776,855] [0m<inf> zigbee_app: rx-on-when-idle probe [tick]: FALSE (joined=1)[0m
+[00:05:08.777,313] [0m<inf> zigbee_app: hfclk probe [tick]: HFCLKSTAT=0x00010000 HFCLKRUN=0x00000000 xtal_running=0[0m

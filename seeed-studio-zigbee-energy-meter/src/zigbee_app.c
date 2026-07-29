@@ -13,6 +13,10 @@
 #include <zigbee/zigbee_error_handler.h>
 #include <zb_nrf_platform.h>
 
+#if IS_ENABLED(CONFIG_APP_HW_HFCLK_PROBE)
+#include <hal/nrf_clock.h>
+#endif
+
 #include "calibration.h"
 #include "led_controller.h"
 #include "metering_scale.h"
@@ -223,6 +227,80 @@ static void apply_sleepy_poll_intervals_if_joined(zb_ret_t status)
 }
 
 /*
+ * HFCLK anchor probe for the 2026-07-29 hunt (#8). The 1.65 mA settled
+ * baseline looks like "CPU System-ON idle, HFCLK on" from the datasheet;
+ * this probe confirms whether HFCLK is actually running post-join by
+ * reading the peripheral status registers directly. If HFCLKSTAT=0 and
+ * HFCLKRUN=0 in the settled state, the anchor is somewhere other than
+ * HFCLK. If HFCLKRUN=1 the next question is which stack holds the
+ * refcount — see docs/working/2026-07-29-hfclk-anchor-hunt.md.
+ *
+ * Piggy-backs on the same call sites as the rx-idle probe (boot,
+ * post-steering, post-reboot-reattach, 60 s tick).
+ */
+#if IS_ENABLED(CONFIG_APP_HW_HFCLK_PROBE)
+
+/*
+ * TIMER0-4 register snapshot + running-vs-stopped probe.
+ *
+ * MODE=0 (Timer, not Counter) + timer actually counting is what anchors
+ * PCLK16M and keeps HFCLK on HFINT. INTENSET alone doesn't answer the
+ * running question — a driver can leave IRQs disabled while using
+ * events via PPI or shortcuts, so INTENSET=0 does NOT mean stopped.
+ *
+ * To detect running, do two back-to-back TASKS_CAPTURE hits into CC[5]
+ * and log the delta. Non-zero delta → timer is running RIGHT NOW.
+ * CC[5] is the least-likely CC slot to conflict with a driver's use
+ * (they typically use CC[0..2]); still a soft assumption.
+ *
+ * The nRF52840 has TIMER0-4 as separate peripheral instances at
+ * distinct base addresses; iterate via an array of pointers.
+ */
+static NRF_TIMER_Type * const app_timers[] = {
+	NRF_TIMER0, NRF_TIMER1, NRF_TIMER2, NRF_TIMER3, NRF_TIMER4,
+};
+
+static void log_timer_status(const char *where)
+{
+	for (size_t i = 0; i < ARRAY_SIZE(app_timers); i++) {
+		NRF_TIMER_Type *t = app_timers[i];
+		uint32_t v1, v2;
+
+		t->TASKS_CAPTURE[5] = 1;
+		v1 = t->CC[5];
+		t->TASKS_CAPTURE[5] = 1;
+		v2 = t->CC[5];
+
+		LOG_INF("timer probe [%s]: T%u MODE=%u BITMODE=%u PRESCALER=%u INTENSET=0x%08x CC5_delta=%u running=%d",
+			where, (unsigned)i,
+			(unsigned)t->MODE,
+			(unsigned)t->BITMODE,
+			(unsigned)t->PRESCALER,
+			(unsigned)t->INTENSET,
+			(unsigned)(v2 - v1),
+			(v2 != v1) ? 1 : 0);
+	}
+}
+
+static void log_hfclk_status(const char *where)
+{
+	bool xtal_running = nrf_clock_hf_is_running(
+		NRF_CLOCK, NRF_CLOCK_HFCLK_HIGH_ACCURACY);
+	uint32_t hfclkstat = NRF_CLOCK->HFCLKSTAT;
+	uint32_t hfclkrun = NRF_CLOCK->HFCLKRUN;
+
+	LOG_INF("hfclk probe [%s]: HFCLKSTAT=0x%08x HFCLKRUN=0x%08x xtal_running=%d",
+		where, hfclkstat, hfclkrun, xtal_running ? 1 : 0);
+	log_timer_status(where);
+}
+
+#else /* !CONFIG_APP_HW_HFCLK_PROBE */
+
+static inline void log_hfclk_status(const char *where) { ARG_UNUSED(where); }
+
+#endif /* CONFIG_APP_HW_HFCLK_PROBE */
+
+/*
  * Diagnostic probe for issue #51 / #8-blocker-1: does ZBOSS clobber our
  * zb_set_rx_on_when_idle(FALSE) setting post-join? Sample the current
  * value at boot, after each signal event, and on a 60 s tick — under the
@@ -231,7 +309,8 @@ static void apply_sleepy_poll_intervals_if_joined(zb_ret_t status)
  * seen in the 2026-07-29 INA219 run.
  *
  * Gated on CONFIG_APP_ZIGBEE_RX_IDLE_PROBE so production builds don't
- * emit these lines. Enabled by rtt.conf.
+ * emit these lines. Enabled by rtt.conf. Also acts as the tick+kick
+ * carrier for the HFCLK probe above (selected via Kconfig).
  */
 #if IS_ENABLED(CONFIG_APP_ZIGBEE_RX_IDLE_PROBE)
 
@@ -252,12 +331,14 @@ static void rx_idle_probe_work_handler(struct k_work *work)
 {
 	ARG_UNUSED(work);
 	log_rx_on_when_idle("tick");
+	log_hfclk_status("tick");
 	k_work_reschedule(&rx_idle_probe_work, RX_IDLE_PROBE_INTERVAL);
 }
 
 static void rx_idle_probe_kick(const char *where)
 {
 	log_rx_on_when_idle(where);
+	log_hfclk_status(where);
 	k_work_reschedule(&rx_idle_probe_work, RX_IDLE_PROBE_INTERVAL);
 }
 

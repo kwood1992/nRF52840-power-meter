@@ -107,6 +107,32 @@ config APP_ZIGBEE_RX_IDLE_PROBE
 	  on via rtt.conf (the RTT-over-SWD overlay) when hunting for whether
 	  ZBOSS clobbers our FALSE setting post-join.
 
+config APP_HW_HFCLK_PROBE
+	bool "Periodically log HFCLKSTAT / HFCLKRUN + TIMER0-4 state"
+	default n
+	select APP_ZIGBEE_RX_IDLE_PROBE
+	help
+	  Diagnostic probe for the 2026-07-29 HFCLK-anchor hunt (#8). Piggy-
+	  backs on the same signal-handler + 60 s-tick call sites as the
+	  rx-idle probe. Logs two things per fire:
+
+	  1. HFCLK status — nrf_clock_hf_is_running(HFXO),
+	     NRF_CLOCK->HFCLKSTAT (state | src bits), NRF_CLOCK->HFCLKRUN.
+	     Confirmed on 2026-07-29 that HFCLK is on via HFINT (not HFXO)
+	     with HFCLKRUN=0 — so a peripheral is auto-requesting PCLK16M.
+
+	  2. TIMER0-4 register snapshot — MODE, BITMODE, PRESCALER, INTENSET
+	     for each of the five TIMER instances. A TIMER in MODE=0 (Timer,
+	     not Counter) with non-zero INTENSET is armed and consuming
+	     PCLK16M, which is the mechanism that keeps HFCLK on HFINT.
+	     The 802.15.4 SL HPTIMER and MPSL both use TIMER instances.
+
+	  Selects APP_ZIGBEE_RX_IDLE_PROBE — HFCLK/TIMER state is logged
+	  from the same 60 s tick and signal-handler kick sites that the
+	  rx-idle probe owns.
+
+	  Off by default. Flip on via rtt.conf.
+
 endmenu
 
 menu "Metering calibration (issue #48)"
