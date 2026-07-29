@@ -1,0 +1,77 @@
+[00:00:00.000,701] [0m<inf> ieee802154_nrf5: nRF5 802154 radio initialized[0m
+*** Booting nRF Connect SDK v2.9.2-4ab7b98fc76f ***
+*** Using Zephyr OS v3.7.99-aa34a5632971 ***
+[00:00:00.003,967] [0m<inf> hw_pulse_counter: hw pulse counter live: LPCOMP AIN0 refsel=VDD_3_8 HYST=on, bench D7 GPIOTE HITOLO, TIMER2 counter mode[0m
+[00:00:00.008,209] [0m<inf> fs_nvs: 8 Sectors of 4096 bytes[0m
+[00:00:00.008,575] [0m<inf> fs_nvs: alloc wra: 5, 8a0[0m
+[00:00:00.008,941] [0m<inf> fs_nvs: data wra: 5, 744[0m
+[00:00:00.009,338] [0m<inf> main: restored accumulator_total=2792268 from NVS[0m
+[00:00:00.009,765] [0m<inf> main: XIAO Zigbee Energy Meter booted[0m
+[00:00:00.010,131] [0m<inf> main: pulse counting: phototransistor on A0 (AIN0) → LPCOMP → PPI → TIMER2, threshold=VDD*3/8 (HYST on)[0m
+[00:00:00.010,711] [0m<inf> main: user button on D6 (P1.11) — short-press (<1 s) join, long-press (>=3 s) factory reset[0m
+[00:00:00.011,260] [0m<inf> main: bench pulse input on D7 (P1.12) — falling-edge via GPIOTE→PPI→TIMER2 (no debounce)[0m
+[00:00:00.011,810] [0m<inf> main: boot-hold: sw0 held for 3000 ms at boot erases the NVS accumulator (4× LED confirm)[0m
+[00:00:00.013,641] [0m<inf> zigbee_app: Metering Divisor: imp/kWh=800 (from NVS)[0m
+[00:00:00.014,068] [0m<inf> zigbee_app_utils: Enabled sleepy end device behavior.[0m
+[00:00:00.014,495] [0m<inf> zigbee_app: rx-on-when-idle probe [post-configure-sleepy]: FALSE (joined=0)[0m
+[00:00:00.015,014] [0m<inf> zigbee_app: hfclk probe [post-configure-sleepy]: HFCLKSTAT=0x00010000 HFCLKRUN=0x00000000 xtal_running=0[0m
+[00:00:00.015,655] [0m<inf> zigbee_app: timer probe [post-configure-sleepy]: T0 MODE=0 BITMODE=0 PRESCALER=4 INTENSET=0x00000000 CC5_delta=0 running=0[0m
+[00:00:00.016,418] [0m<inf> zigbee_app: timer probe [post-configure-sleepy]: T1 MODE=0 BITMODE=3 PRESCALER=4 INTENSET=0x00000000 CC5_delta=0 running=0[0m
+[00:00:00.017,150] [0m<inf> zigbee_app: timer probe [post-configure-sleepy]: T2 MODE=1 BITMODE=3 PRESCALER=4 INTENSET=0x00000000 CC5_delta=0 running=0[0m
+[00:00:00.017,913] [0m<inf> zigbee_app: timer probe [post-configure-sleepy]: T3 MODE=0 BITMODE=0 PRESCALER=4 INTENSET=0x00000000 CC5_delta=0 running=0[0m
+[00:00:00.018,646] [0m<inf> zigbee_app: timer probe [post-configure-sleepy]: T4 MODE=0 BITMODE=0 PRESCALER=4 INTENSET=0x00000000 CC5_delta=0 running=0[0m
+[00:00:00.043,792] [0m<inf> zigbee_app_utils: Production configuration is not present or invalid (status: -1)[0m
+[00:00:00.044,555] [0m<inf> zigbee_app_utils: Zigbee stack initialized[0m
+[00:00:00.219,604] [0m<inf> main: pulse(s) counted: delta=22 accumulator_total=2792290[0m
+[00:00:00.240,509] [0m<inf> main: persisted accumulator_total=2792290[0m
+[00:00:00.441,101] [0m<inf> main: pulse(s) counted: delta=300 accumulator_total=2792590[0m
+[00:00:00.465,087] [0m<inf> main: persisted accumulator_total=2792590[0m
+[00:00:00.665,649] [0m<inf> main: pulse(s) counted: delta=384 accumulator_total=2792974[0m
+[00:00:00.687,103] [0m<inf> main: persisted accumulator_total=2792974[0m
+[00:00:00.887,725] [0m<inf> main: pulse(s) counted: delta=20 accumulator_total=2792994[0m
+[00:00:02.488,861] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2792995[0m
+[00:00:04.490,142] [0m<inf> main: pulse(s) counted: delta=33 accumulator_total=2793028[0m
+[00:00:04.690,765] [0m<inf> main: pulse(s) counted: delta=56 accumulator_total=2793084[0m
+[00:00:04.713,317] [0m<inf> main: persisted accumulator_total=2793084[0m
+[00:00:05.020,080] [0m<inf> zigbee_app_utils: Unimplemented signal (signal: 66, status: 0)[0m
+[00:00:05.914,245] [0m<inf> main: pulse(s) counted: delta=97 accumulator_total=2793181[0m
+[00:00:06.114,898] [0m<inf> main: pulse(s) counted: delta=370 accumulator_total=2793551[0m
+[00:00:06.139,282] [0m<inf> main: persisted accumulator_total=2793551[0m
+[00:00:06.339,843] [0m<inf> main: pulse(s) counted: delta=220 accumulator_total=2793771[0m
+[00:00:06.362,670] [0m<inf> main: persisted accumulator_total=2793771[0m
+[00:00:00.000,701] [0m<inf> ieee802154_nrf5: nRF5 802154 radio initialized[0m
+*** Booting nRF Connect SDK v2.9.2-4ab7b98fc76f ***
+*** Using Zephyr OS v3.7.99-aa34a5632971 ***
+[00:00:00.003,967] [0m<inf> hw_pulse_counter: hw pulse counter live: LPCOMP AIN0 refsel=VDD_3_8 HYST=on, bench D7 GPIOTE HITOLO, TIMER2 counter mode[0m
+[00:00:00.008,117] [0m<inf> fs_nvs: 8 Sectors of 4096 bytes[0m
+[00:00:00.008,483] [0m<inf> fs_nvs: alloc wra: 5, 870[0m
+[00:00:00.008,850] [0m<inf> fs_nvs: data wra: 5, 774[0m
+[00:00:00.009,246] [0m<inf> main: restored accumulator_total=2793771 from NVS[0m
+[00:00:00.009,674] [0m<inf> main: XIAO Zigbee Energy Meter booted[0m
+[00:00:00.010,040] [0m<inf> main: pulse counting: phototransistor on A0 (AIN0) → LPCOMP → PPI → TIMER2, threshold=VDD*3/8 (HYST on)[0m
+[00:00:00.010,620] [0m<inf> main: user button on D6 (P1.11) — short-press (<1 s) join, long-press (>=3 s) factory reset[0m
+[00:00:00.011,169] [0m<inf> main: bench pulse input on D7 (P1.12) — falling-edge via GPIOTE→PPI→TIMER2 (no debounce)[0m
+[00:00:00.011,688] [0m<inf> main: boot-hold: sw0 held for 3000 ms at boot erases the NVS accumulator (4× LED confirm)[0m
+[00:00:00.013,580] [0m<inf> zigbee_app: Metering Divisor: imp/kWh=800 (from NVS)[0m
+[00:00:00.014,007] [0m<inf> zigbee_app_utils: Enabled sleepy end device behavior.[0m
+[00:00:00.014,434] [0m<inf> zigbee_app: rx-on-when-idle probe [post-configure-sleepy]: FALSE (joined=0)[0m
+[00:00:00.014,953] [0m<inf> zigbee_app: hfclk probe [post-configure-sleepy]: HFCLKSTAT=0x00010000 HFCLKRUN=0x00000000 xtal_running=0[0m
+[00:00:00.015,594] [0m<inf> zigbee_app: timer probe [post-configure-sleepy]: T0 MODE=0 BITMODE=0 PRESCALER=4 INTENSET=0x00000000 CC5_delta=0 running=0[0m
+[00:00:00.016,326] [0m<inf> zigbee_app: timer probe [post-configure-sleepy]: T1 MODE=0 BITMODE=3 PRESCALER=4 INTENSET=0x00000000 CC5_delta=0 running=0[0m
+[00:00:00.017,089] [0m<inf> zigbee_app: timer probe [post-configure-sleepy]: T2 MODE=1 BITMODE=3 PRESCALER=4 INTENSET=0x00000000 CC5_delta=0 running=0[0m
+[00:00:00.017,822] [0m<inf> zigbee_app: timer probe [post-configure-sleepy]: T3 MODE=0 BITMODE=0 PRESCALER=4 INTENSET=0x00000000 CC5_delta=0 running=0[0m
+[00:00:00.018,554] [0m<inf> zigbee_app: timer probe [post-configure-sleepy]: T4 MODE=0 BITMODE=0 PRESCALER=4 INTENSET=0x00000000 CC5_delta=0 running=0[0m
+[00:00:00.043,762] [0m<inf> zigbee_app_utils: Production configuration is not present or invalid (status: -1)[0m
+[00:00:00.044,525] [0m<inf> zigbee_app_utils: Zigbee stack initialized[0m
+[00:00:05.020,080] [0m<inf> zigbee_app_utils: Unimplemented signal (signal: 66, status: 0)[0m
+[00:00:08.765,930] [0m<inf> zigbee_app_utils: Unimplemented signal (signal: 56, status: 0)[0m
+[00:00:08.767,517] [0m<inf> zigbee_app: device reboot: reattached to saved network[0m
+[00:00:08.767,944] [0m<inf> zigbee_app: rx-on-when-idle probe [post-reboot-reattach]: FALSE (joined=1)[0m
+[00:00:08.768,463] [0m<inf> zigbee_app: hfclk probe [post-reboot-reattach]: HFCLKSTAT=0x00010000 HFCLKRUN=0x00000000 xtal_running=0[0m
+[00:00:08.769,104] [0m<inf> zigbee_app: timer probe [post-reboot-reattach]: T0 MODE=0 BITMODE=3 PRESCALER=4 INTENSET=0x00000000 CC5_delta=0 running=0[0m
+[00:00:08.769,836] [0m<inf> zigbee_app: timer probe [post-reboot-reattach]: T1 MODE=0 BITMODE=3 PRESCALER=4 INTENSET=0x00000000 CC5_delta=0 running=0[0m
+[00:00:08.770,599] [0m<inf> zigbee_app: timer probe [post-reboot-reattach]: T2 MODE=1 BITMODE=3 PRESCALER=4 INTENSET=0x00000000 CC5_delta=0 running=0[0m
+[00:00:08.771,331] [0m<inf> zigbee_app: timer probe [post-reboot-reattach]: T3 MODE=0 BITMODE=0 PRESCALER=4 INTENSET=0x00000000 CC5_delta=0 running=0[0m
+[00:00:08.772,094] [0m<inf> zigbee_app: timer probe [post-reboot-reattach]: T4 MODE=0 BITMODE=0 PRESCALER=4 INTENSET=0x00000000 CC5_delta=0 running=0[0m
+[00:00:08.772,827] [0m<inf> zigbee_app: sleepy ED: long_poll=60000 ms, turbo_poll_window=30000 ms[0m
+[00:00:08.773,529] [0m<inf> zigbee_app_utils: Joined network successfully on reboot signal (Extended PAN ID: acfe3ed7bda4880e, PAN ID: 0x0bc8)[0m

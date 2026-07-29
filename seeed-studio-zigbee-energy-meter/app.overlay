@@ -64,3 +64,66 @@
 &gpiote {
 	status = "okay";
 };
+
+/*
+ * Battery-mode current fix — kill the XIAO Sense's IMU regulator so the
+ * LSM6DS3TR-C doesn't draw its ~0.6-1.7 mA normal-mode quiescent current.
+ *
+ * Root cause: the SENSE variant's board DT declares a fixed regulator on
+ * P1.08 with `regulator-boot-on`, which Zephyr's regulator subsystem
+ * enables at boot. The IMU sensor driver then fails to init (our overlay
+ * doesn't use its I2C bus) but the regulator stays ON — sensor keeps
+ * drawing current until an explicit disable.
+ *
+ * We don't use the IMU in this app. Disable both the sensor node (so no
+ * driver instance is created) and the regulator node (so the P1.08 enable
+ * pin doesn't drive HIGH at boot).
+ *
+ * The regulator node has no explicit label in the upstream board DTS —
+ * refer to it by path via &{/lsm6ds3tr-c-en}. Same for the microphone
+ * regulator on P1.10 (msm261d3526hicpm-c-en) which is off by default but
+ * belt-and-braces disable is cheap.
+ */
+&lsm6ds3tr_c {
+	status = "disabled";
+};
+
+&{/lsm6ds3tr-c-en} {
+	status = "disabled";
+};
+
+&{/msm261d3526hicpm-c-en} {
+	status = "disabled";
+};
+
+/*
+ * Kill the two on-board EasyDMA peripherals that were the real ~1.5 mA
+ * anchor. When their ENABLE register is non-zero, UARTE and TWIM instances
+ * request PCLK16M, which auto-starts HFCLK on HFINT and pins the SoC at
+ * the ~1.6 mA "System-ON idle, HFCLK on" datasheet floor even with the
+ * CPU in WFE.
+ *
+ * SWD peripheral snapshot showed UARTE0.ENABLE=8 and TWIM0.ENABLE=6 on
+ * every build to date. Neither is used by this app on rtt.conf builds:
+ *
+ * - UART0 was left enabled by the board DTS as the default console. In
+ *   this build CONFIG_UART_CONSOLE=n / CONFIG_LOG_BACKEND_UART=n / no
+ *   shell — nothing needs it. Disable at the DT level so Zephyr never
+ *   probes the driver and never touches ENABLE.
+ *
+ * - I2C0 hosted the LSM6DS3TR-C IMU (disabled above). With the child
+ *   node status=disabled, Zephyr still probes the parent bus driver
+ *   which enables the peripheral. Explicit disable at the parent level
+ *   is what actually stops the ENABLE write.
+ *
+ * If dev.conf ever needs I2C or UART back (bench sensor, uart console),
+ * re-enable via the dev.conf-specific overlay path instead of undoing
+ * this — the battery build must ship with both off.
+ */
+&uart0 {
+	status = "disabled";
+};
+
+&i2c0 {
+	status = "disabled";
+};
