@@ -41,4 +41,5 @@ Don't build the USB-dev workflow with `rtt.conf` — it turns off CDC-ACM consol
 ## Other helpers
 
 - `test-join.sh` — force-rejoin cycle: kick the device out via Z2M, watch it re-interview, PASS/FAIL on the resulting interview_state. See known caveat about stale `interview_state` from a prior join reporting SUCCESSFUL falsely.
-- `xiao-pulse.sh` / `xiao-pulse-burst.sh` — drive the D7 pulse-simulator GPIO on the Pi to feed synthetic pulses into the meter.
+- `xiao-pulse.sh` / `xiao-pulse-burst.sh` — drive the D7 pulse-simulator GPIO on the Pi to feed synthetic pulses into the meter. Shell + `pinctrl`, so per-edge timing bottoms out at 5–15 ms.
+- `xiao-pulse-us.sh` — µs-precision variant for #59's min-pulse-width filter AC test (threshold ± 100 µs boundary discrimination). Uses `pigpio` wave-DMA on the Pi so sub-millisecond pulse widths are actually accurate. Requires `sudo apt install python3-pigpio` + `sudo systemctl enable --now pigpiod` on `rpi-xiao`.
