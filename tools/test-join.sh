@@ -28,12 +28,21 @@
 #   ./tools/test-join.sh                  # test the standard build
 #   ./tools/test-join.sh path/to/other.uf2
 #
-# Flash strategy: tries tools/flash.sh (MSC drop) first, since it's the
-# fastest and doesn't need adafruit-nrfutil. Falls back to
-# tools/flash-serial.sh if the mass-storage endpoint doesn't advertise
-# (a recurring failure mode — see memory
-# reference_serial_dfu_flash_fallback). flash-serial packages the .hex,
-# not the .uf2, so we hand it the sibling .hex for the same build.
+# Flash strategy: chained fallback in the order flash.sh (USB MSC drop) →
+# flash-serial.sh (USB CDC-ACM DFU) → flash-swd.sh (SWD via Pi OpenOCD).
+# USB paths run first because they're the fastest and don't touch the
+# SWD wiring; SWD is the final fallback because it works even when USB
+# is unplugged entirely — the INA219-measurement scenario (board on
+# Pi 3V3 rail, USB removed to avoid the two-supply hazard).
+#
+# All three flash paths need the sibling .hex for the given .uf2 (SWD
+# and CDC-DFU package the .hex; only flash.sh uses the .uf2 directly).
+#
+# Env FLASH_METHOD short-circuits the chain when the caller knows which
+# path will succeed and wants to skip the USB timeouts:
+#   FLASH_METHOD=swd  → SWD only (fastest when USB is knowingly unplugged)
+#   FLASH_METHOD=usb  → flash.sh + flash-serial.sh only, no SWD
+#   unset (default)   → auto: try all three, in the order above
 
 set -eu
 
@@ -41,6 +50,15 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 UF2="${1:-$REPO_ROOT/seeed-studio-zigbee-energy-meter/build/zephyr/zephyr.uf2}"
 PI_ALIAS="rpi-xiao"
 INTERVIEW_TIMEOUT_S=90
+FLASH_METHOD="${FLASH_METHOD:-auto}"
+
+case "$FLASH_METHOD" in
+    auto|usb|swd) ;;
+    *)
+        echo "error: FLASH_METHOD must be one of: auto (default), usb, swd (got: $FLASH_METHOD)" >&2
+        exit 2
+        ;;
+esac
 
 # Read the XIAO's IEEE from the Pi's creds file so we filter events for
 # just our device. If you swap boards, update the creds file.
@@ -58,25 +76,54 @@ log "target device: $XIAO_IEEE"
 log "UF2:           $UF2"
 
 # -- 1. flash --
-# Try flash.sh (MSC drop) first. If it fails (typically because
-# /Volumes/XIAO-SENSE doesn't mount), fall back to flash-serial.sh
-# with the sibling .hex.
-log "1/5 flashing (trying flash.sh first)..."
-if "$REPO_ROOT/tools/flash.sh" "$UF2" >/dev/null 2>&1; then
-    log "     flash.sh succeeded"
-else
-    HEX="${UF2%.uf2}.hex"
-    if [ ! -f "$HEX" ]; then
-        log "error: flash.sh failed AND no sibling .hex found for flash-serial fallback (looked for $HEX)"
-        exit 3
+# Chained fallback governed by FLASH_METHOD (validated above). All non-
+# UF2 paths need the sibling .hex — resolve it once here.
+log "1/5 flashing (method=$FLASH_METHOD)..."
+HEX="${UF2%.uf2}.hex"
+
+flash_via_usb_msc() {
+    "$REPO_ROOT/tools/flash.sh" "$UF2" >/dev/null 2>&1
+}
+flash_via_usb_serial() {
+    [ -f "$HEX" ] && "$REPO_ROOT/tools/flash-serial.sh" "$HEX" >/dev/null 2>&1
+}
+flash_via_swd() {
+    [ -f "$HEX" ] && "$REPO_ROOT/tools/flash-swd.sh" "$HEX" >/dev/null 2>&1
+}
+
+flashed=""
+if [ "$FLASH_METHOD" = auto ] || [ "$FLASH_METHOD" = usb ]; then
+    if flash_via_usb_msc; then
+        flashed="flash.sh"
+    else
+        log "     flash.sh failed"
+        if [ ! -f "$HEX" ]; then
+            log "     (skipping CDC-DFU fallback — no sibling .hex at $HEX)"
+        elif flash_via_usb_serial; then
+            flashed="flash-serial.sh"
+        else
+            log "     flash-serial.sh failed"
+        fi
     fi
-    log "     flash.sh failed — falling back to flash-serial.sh with $(basename "$HEX")..."
-    if ! "$REPO_ROOT/tools/flash-serial.sh" "$HEX" >/dev/null 2>&1; then
-        log "error: both flash paths failed"
-        exit 3
-    fi
-    log "     flash-serial.sh succeeded"
 fi
+
+if [ -z "$flashed" ] && { [ "$FLASH_METHOD" = auto ] || [ "$FLASH_METHOD" = swd ]; }; then
+    if [ ! -f "$HEX" ]; then
+        log "error: no sibling .hex found for SWD flash (looked for $HEX)"
+        exit 3
+    fi
+    if flash_via_swd; then
+        flashed="flash-swd.sh"
+    else
+        log "     flash-swd.sh failed"
+    fi
+fi
+
+if [ -z "$flashed" ]; then
+    log "error: all enabled flash paths failed (method=$FLASH_METHOD)"
+    exit 3
+fi
+log "     $flashed succeeded"
 
 # -- 2. wait for boot --
 log "2/5 waiting 8 s for boot..."
