@@ -2,11 +2,13 @@
 
 #include <zephyr/device.h>
 #include <zephyr/drivers/gpio.h>
-#include <zephyr/drivers/uart.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/sys/atomic.h>
+#if IS_ENABLED(CONFIG_USB_DEVICE_STACK)
+#include <zephyr/drivers/uart.h>
 #include <zephyr/usb/usb_device.h>
+#endif
 
 #include "button_press_classifier.h"
 #include "hw_pulse_counter.h"
@@ -169,6 +171,7 @@ static void blink(int times, int on_ms, int off_ms)
 	}
 }
 
+#if IS_ENABLED(CONFIG_USB_DEVICE_STACK)
 static void wait_for_host_dtr_or_timeout(const struct device *cdc, int timeout_ms)
 {
 	uint32_t dtr = 0;
@@ -180,6 +183,7 @@ static void wait_for_host_dtr_or_timeout(const struct device *cdc, int timeout_m
 		elapsed += 100;
 	}
 }
+#endif
 
 /* Split from user_button_arm_irq() so main() can poll sw0 for the
  * boot-hold accumulator-erase gesture BEFORE the edge interrupt goes
@@ -331,6 +335,16 @@ int main(void)
 	 */
 	gpio_pin_configure_dt(&led, GPIO_OUTPUT_INACTIVE);
 
+	/*
+	 * USB CDC-ACM console + host-DTR wait — only compiled in when the
+	 * USB device stack is enabled. On the battery / RTT overlay
+	 * (rtt.conf) CONFIG_USB_DEVICE_STACK=n, so we skip the whole thing:
+	 * no CDC-ACM device to fetch, no usb_enable(), no 5 s DTR wait
+	 * before Zigbee bring-up. HFCLK isn't held on by the USB PHY, and
+	 * boot latency drops by ~5 s. See #8 blocker #2 and the
+	 * 2026-07-29-blocker1-closed.md follow-up.
+	 */
+#if IS_ENABLED(CONFIG_USB_DEVICE_STACK)
 	const struct device *const cdc = DEVICE_DT_GET(DT_CHOSEN(zephyr_console));
 
 	if (!device_is_ready(cdc)) {
@@ -356,6 +370,7 @@ int main(void)
 			k_sleep(K_FOREVER);
 		}
 	}
+#endif /* CONFIG_USB_DEVICE_STACK */
 
 	if (user_button_configure()) {
 		/* Category 3 = user_button_configure failed. */
@@ -477,9 +492,13 @@ int main(void)
 	}
 
 	/* Hold up to 5 s for a serial monitor to attach so early logs are
-	 * visible; then proceed regardless.
+	 * visible; then proceed regardless. Only present when the USB
+	 * stack is compiled in — the RTT / battery build (rtt.conf) skips
+	 * it, so boot proceeds to Zigbee bring-up immediately.
 	 */
+#if IS_ENABLED(CONFIG_USB_DEVICE_STACK)
 	wait_for_host_dtr_or_timeout(cdc, 5000);
+#endif
 
 	LOG_INF("XIAO Zigbee Energy Meter booted");
 	LOG_INF("pulse counting: phototransistor on A0 (AIN0) → LPCOMP → PPI → TIMER2, "
