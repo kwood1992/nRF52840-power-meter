@@ -94,6 +94,36 @@ config APP_HW_PULSE_COUNTER
 	  for that isolation lives at `no-pulse.conf` — do NOT ship a build
 	  with this off, the device won't count anything.
 
+config APP_PULSE_MIN_WIDTH_US
+	int "Minimum pulse width to count (µs, hardware-gated)"
+	default 1000
+	range 100 10000
+	depends on APP_HW_PULSE_COUNTER
+	help
+	  Gate for the LPCOMP UP → PPI → TIMER2 chain and the D7 GPIOTE bench
+	  chain. Both routes now feed TIMER3 which measures the pulse width
+	  in real time; only pulses that hold above the reference for at
+	  least this many microseconds are forwarded as TIMER2 COUNT.
+
+	  Rationale for the default: torch flicker overcount at the bench
+	  (`project_led_torch_flicker_pulse_count` memory, 2026-07-29) shows
+	  low-frequency PWM cycles firing LPCOMP UP at rates the bench eye
+	  reads as "steady on". A 1 ms floor rejects anything faster than
+	  the slowest torch flicker rate we've measured while staying well
+	  below any real electricity-meter LED (imp pulses are 20-100 ms).
+
+	  Range mirrors the design doc: [100, 10000]. 100 µs is below the
+	  LPCOMP settling and hysteresis roundtrip so anything shorter is
+	  measurement noise; 10 ms is well below the shortest real meter LED
+	  so a filter that high can't miss real pulses. NVS-backed runtime
+	  override is planned (mirrors the divisor override from #48) but
+	  not yet wired — this is the compile-time default and only knob.
+
+	  Bench verification: `xiao-pulse.sh <ms>` at threshold ± some
+	  margin. Sub-ms fractional-second precision on the Pi's userland
+	  `sleep` is unreliable, so first bench passes use widths in the
+	  10s of ms range for repeatability.
+
 config APP_ZIGBEE_RX_IDLE_PROBE
 	bool "Periodically log zb_get_rx_on_when_idle() over the log backend"
 	default n

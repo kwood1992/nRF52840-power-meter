@@ -61,6 +61,19 @@
 	status = "okay";
 };
 
+/*
+ * TIMER3: width-measure gate for the min-pulse-width filter (issue #59,
+ * see docs/working/2026-07-29-min-pulse-width-spike.md). Timer mode,
+ * 1 MHz, 16-bit; CC[0] holds the threshold in µs, CC0_STOP short freezes
+ * the timer once the threshold is reached so PCLK16M is only requested
+ * while a pulse is in flight. TIMER0/1/2 are already claimed
+ * (radio / 802.15.4 / this project's counter); TIMER3 is the next free
+ * instance.
+ */
+&timer3 {
+	status = "okay";
+};
+
 &gpiote {
 	status = "okay";
 };
