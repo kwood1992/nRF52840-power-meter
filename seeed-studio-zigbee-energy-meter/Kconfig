@@ -78,6 +78,22 @@ config APP_ZIGBEE_LONG_POLL_INTERVAL_MS
 	  Not tunable below the ZBOSS floor ZB_PIM_MINIMUM_LONG_POLL_INTERVAL_IN_QS
 	  (1 s). Not useful above ZB_PIM_MAXIMUM_LONG_POLL_INTERVAL (hours).
 
+config APP_HW_PULSE_COUNTER
+	bool "Bring up the LPCOMP → PPI → TIMER2 hardware pulse chain"
+	default y
+	help
+	  When enabled (default), main() calls hw_pulse_counter_init() and the
+	  sample loop reads hw_pulse_counter_read(). This is the production
+	  configuration — the whole point of the device is to count meter
+	  pulses in hardware while the CPU sleeps.
+
+	  Turn OFF only as a diagnostic isolation: TIMER2 in counter mode is
+	  clocked from PCLK16M (HFCLK-derived) and may be what's holding
+	  HFCLK on in the joined-idle state, preventing the current from
+	  dropping to the sub-mA System-ON deep-sleep floor. Layered overlay
+	  for that isolation lives at `no-pulse.conf` — do NOT ship a build
+	  with this off, the device won't count anything.
+
 config APP_ZIGBEE_RX_IDLE_PROBE
 	bool "Periodically log zb_get_rx_on_when_idle() over the log backend"
 	default n

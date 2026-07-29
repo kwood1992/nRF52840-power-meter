@@ -402,6 +402,7 @@ int main(void)
 	led_request(LED_PATTERN_BUTTON_ACK, LED_PRIO_BUTTON_ACK);
 #endif
 
+#if IS_ENABLED(CONFIG_APP_HW_PULSE_COUNTER)
 	int hw_err = hw_pulse_counter_init();
 
 	if (hw_err) {
@@ -413,6 +414,9 @@ int main(void)
 			k_sleep(K_FOREVER);
 		}
 	}
+#else
+	LOG_WRN("hw_pulse_counter disabled by Kconfig — diagnostic build, no counting");
+#endif
 
 	/* NVS + boot-hold gesture check runs BEFORE wait_for_host_dtr_or_timeout
 	 * and zigbee_app_init so the total delay from power-on to the point the
@@ -551,8 +555,15 @@ int main(void)
 		 * (bench) events both feed TIMER2 via PPI, so this reads
 		 * the union of "real meter pulses" + "bench simulator
 		 * pulses" — no separate atomic to merge in.
+		 *
+		 * Returns 0 when APP_HW_PULSE_COUNTER is disabled (diagnostic
+		 * isolation build); the rest of the loop is a no-op.
 		 */
+#if IS_ENABLED(CONFIG_APP_HW_PULSE_COUNTER)
 		uint32_t pulses = hw_pulse_counter_read();
+#else
+		uint32_t pulses = 0;
+#endif
 
 		pulse_accumulator_update(&acc, pulses);
 
