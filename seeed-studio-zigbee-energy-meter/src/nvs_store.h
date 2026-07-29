@@ -34,4 +34,13 @@ int nvs_store_load_imp_per_kwh(uint32_t *out);
 
 int nvs_store_save_imp_per_kwh(uint32_t imp_per_kwh);
 
+/*
+ * Persist the min-pulse-width filter threshold (µs) for the LPCOMP →
+ * TIMER3 → TIMER2 chain (issue #59). Same load/save shape. Validation
+ * lives in calibration.[ch]; this layer is a dumb u32 slot.
+ */
+int nvs_store_load_pulse_min_width_us(uint32_t *out);
+
+int nvs_store_save_pulse_min_width_us(uint32_t min_width_us);
+
 #endif

@@ -18,6 +18,7 @@
 #endif
 
 #include "calibration.h"
+#include "hw_pulse_counter.h"
 #include "led_controller.h"
 #include "metering_scale.h"
 #include "nvs_store.h"
@@ -56,6 +57,21 @@ LOG_MODULE_REGISTER(zigbee_app, LOG_LEVEL_INF);
 #define METERING_DEVICE_TYPE     0U  /* 0 = Electric Metering per SE 1.4 D.5.2.2.5.2 */
 
 /*
+ * Manufacturer-specific min-pulse-width filter attribute (issue #59
+ * impl-2). Attribute ID 0xF000 sits in the manufacturer-specific range
+ * of the Metering cluster's attribute space; manuf_code 0x1015 is
+ * Nordic Semiconductor's Zigbee Alliance member ID. The pair uniquely
+ * identifies our extension against any collision on the wire.
+ *
+ * Kept in the Metering cluster (rather than a new manufacturer cluster)
+ * so a single external converter serves both the imp/kWh knob (#48) and
+ * this one — reduces surface area, avoids a second endpoint cluster
+ * declaration + its ZBOSS boilerplate.
+ */
+#define ZB_ZCL_ATTR_METERING_MIN_PULSE_WIDTH_US_ID  0xF000U
+#define ZB_ZCL_MIN_PULSE_WIDTH_MANUF_CODE           0x1015U
+
+/*
  * Basic-cluster identity strings. These are the fingerprint Z2M's
  * external converter matches on (`zigbeeModel` + manufacturer). Kept
  * short and stable — changing them after commissioning would strand
@@ -91,6 +107,15 @@ struct zb_device_ctx {
 	zb_uint8_t  metering_historical_consumption_formatting;
 	zb_uint24_t metering_multiplier;
 	zb_uint24_t metering_divisor;
+
+	/* Manufacturer-specific min-pulse-width filter threshold in µs
+	 * (issue #59 impl-2). ZCL type u16; Kconfig range 100-10000
+	 * fits comfortably. Exposed under manuf_code 0x1015 (Nordic
+	 * Semiconductor's Zigbee Alliance member ID) so a naive Z2M
+	 * probe treats it as a Nordic-vendor extension. Attribute ID
+	 * 0xF000 is inside the manufacturer-specific range.
+	 */
+	zb_uint16_t metering_min_pulse_width_us;
 };
 
 static struct zb_device_ctx dev_ctx;
@@ -158,6 +183,20 @@ ZB_ZCL_START_DECLARE_ATTRIB_LIST_CLUSTER_REVISION(metering_attr_list,
 			       &dev_ctx.metering_divisor,
 			       ZB_ZCL_ATTR_TYPE_U24,
 			       ZB_ZCL_ATTR_ACCESS_READ_WRITE)
+	/*
+	 * Manufacturer-specific min-pulse-width filter threshold (issue
+	 * #59 impl-2). Kept in the Metering cluster's attribute list so
+	 * the external converter can address it against the same cluster
+	 * as the Divisor override — one converter, two knobs. The
+	 * manuf_code (Nordic 0x1015) segregates it from any future
+	 * Metering-cluster attribute ID collision.
+	 */
+	ZB_ZCL_SET_MANUF_SPEC_ATTR_DESC(
+		ZB_ZCL_ATTR_METERING_MIN_PULSE_WIDTH_US_ID,
+		ZB_ZCL_ATTR_TYPE_U16,
+		ZB_ZCL_ATTR_ACCESS_READ_WRITE,
+		ZB_ZCL_MIN_PULSE_WIDTH_MANUF_CODE,
+		&dev_ctx.metering_min_pulse_width_us)
 ZB_ZCL_FINISH_DECLARE_ATTRIB_LIST;
 
 ZB_DECLARE_METER_CLUSTER_LIST(
@@ -494,6 +533,24 @@ static void metering_attrs_init(void)
 
 	effective_divisor = divisor;
 	zb_uint32_to_uint24(divisor, &dev_ctx.metering_divisor);
+
+	/*
+	 * Manufacturer-specific min-pulse-width filter threshold (#59
+	 * impl-2). The active TIMER3.CC[0] value was already programmed
+	 * by hw_pulse_counter_init() from the same NVS slot; we just
+	 * need to mirror it into the ZCL attribute so a Z2M read reflects
+	 * the running value. Do the load again (cheap) so this table
+	 * stays authoritative even if the load order swaps in future.
+	 */
+	uint32_t min_width_us = CONFIG_APP_PULSE_MIN_WIDTH_US;
+	uint32_t nvs_width = 0;
+	int rc_width = nvs_store_load_pulse_min_width_us(&nvs_width);
+
+	if (rc_width == 0 &&
+	    calibration_is_valid_pulse_min_width_us(nvs_width)) {
+		min_width_us = nvs_width;
+	}
+	dev_ctx.metering_min_pulse_width_us = (zb_uint16_t)min_width_us;
 }
 
 static void app_clusters_attr_init(void)
@@ -569,8 +626,57 @@ static void zcl_device_cb(zb_bufid_t bufid)
 	    ZB_ZCL_CLUSTER_ID_METERING) {
 		return;
 	}
-	if (p->cb_param.set_attr_value_param.attr_id !=
-	    ZB_ZCL_ATTR_METERING_DIVISOR_ID) {
+
+	uint16_t attr_id = p->cb_param.set_attr_value_param.attr_id;
+
+	if (attr_id == ZB_ZCL_ATTR_METERING_MIN_PULSE_WIDTH_US_ID) {
+		uint16_t new_width =
+			p->cb_param.set_attr_value_param.values.data16;
+
+		if (!calibration_is_valid_pulse_min_width_us(new_width)) {
+			LOG_WRN("rejecting min-pulse-width write: %u out of "
+				"range [%u..%u] — rolling back to %u",
+				(unsigned)new_width,
+				CALIBRATION_PULSE_MIN_WIDTH_US_MIN,
+				CALIBRATION_PULSE_MIN_WIDTH_US_MAX,
+				(unsigned)dev_ctx.metering_min_pulse_width_us);
+
+			uint16_t rollback = dev_ctx.metering_min_pulse_width_us;
+
+			ZB_ZCL_SET_ATTRIBUTE(APP_ENDPOINT,
+					     ZB_ZCL_CLUSTER_ID_METERING,
+					     ZB_ZCL_CLUSTER_SERVER_ROLE,
+					     ZB_ZCL_ATTR_METERING_MIN_PULSE_WIDTH_US_ID,
+					     (zb_uint8_t *)&rollback,
+					     ZB_FALSE);
+			p->status = RET_OUT_OF_RANGE;
+			return;
+		}
+
+		/* Push to hardware first — even if NVS persistence fails,
+		 * the running filter tracks the accepted value until the
+		 * next reboot (which will revert to the last persisted or
+		 * compile-time default). Same in-memory-only fallback as
+		 * the Divisor path below.
+		 */
+		hw_pulse_counter_set_min_width_us(new_width);
+
+		int rc = nvs_store_save_pulse_min_width_us(new_width);
+
+		if (rc) {
+			LOG_ERR("nvs_store_save_pulse_min_width_us(%u) "
+				"failed: %d — value applied in memory only",
+				(unsigned)new_width, rc);
+		} else {
+			LOG_INF("min-pulse-width updated: %u µs (persisted)",
+				(unsigned)new_width);
+		}
+
+		dev_ctx.metering_min_pulse_width_us = new_width;
+		return;
+	}
+
+	if (attr_id != ZB_ZCL_ATTR_METERING_DIVISOR_ID) {
 		return;
 	}
 

@@ -1,5 +1,8 @@
 #include "hw_pulse_counter.h"
 
+#include "calibration.h"
+#include "nvs_store.h"
+
 #include <errno.h>
 
 #include <zephyr/device.h>
@@ -66,6 +69,39 @@ static void lpcomp_evt_stub(nrf_lpcomp_event_t event)
 	ARG_UNUSED(event);
 }
 
+/* Load the effective threshold from NVS if the persisted value is in
+ * range; otherwise fall back to the Kconfig compile-time default. Same
+ * shape as the imp/kWh Divisor restore path in zigbee_app.c (issue #48).
+ * The NVS/Kconfig split lets the field-adjust story from #59 impl-2
+ * survive reboots without needing every deployment to reflash.
+ */
+static uint32_t effective_min_width_us_at_init(void)
+{
+	uint32_t nvs_val = 0;
+	int rc = nvs_store_load_pulse_min_width_us(&nvs_val);
+
+	if (rc == 0) {
+		if (calibration_is_valid_pulse_min_width_us(nvs_val)) {
+			LOG_INF("min-pulse-width: %u µs (from NVS)",
+				(unsigned)nvs_val);
+			return nvs_val;
+		}
+		LOG_WRN("NVS pulse_min_width_us=%u out of range — "
+			"falling back to compile-time default %u µs",
+			(unsigned)nvs_val,
+			(unsigned)CONFIG_APP_PULSE_MIN_WIDTH_US);
+	} else if (rc != -ENOENT) {
+		LOG_ERR("nvs_store_load_pulse_min_width_us failed: %d — "
+			"using compile-time default %u µs",
+			rc, (unsigned)CONFIG_APP_PULSE_MIN_WIDTH_US);
+	} else {
+		LOG_INF("min-pulse-width: %u µs (compile-time default)",
+			(unsigned)CONFIG_APP_PULSE_MIN_WIDTH_US);
+	}
+
+	return (uint32_t)CONFIG_APP_PULSE_MIN_WIDTH_US;
+}
+
 int hw_pulse_counter_init(void)
 {
 	nrfx_err_t err;
@@ -117,10 +153,15 @@ int hw_pulse_counter_init(void)
 	 * PCLK16M / HFCLK is only requested while a pulse is in flight.
 	 * `enable_int=false` — the CC[0] event is consumed by PPI, no
 	 * CPU IRQ needed.
+	 *
+	 * effective_min_width_us_at_init() picks from NVS (impl-2 field
+	 * override) or falls back to CONFIG_APP_PULSE_MIN_WIDTH_US.
 	 */
+	uint32_t effective_min_width_us = effective_min_width_us_at_init();
+
 	nrfx_timer_extended_compare(&width_timer,
 				    WIDTH_THRESHOLD_CH,
-				    (uint32_t)CONFIG_APP_PULSE_MIN_WIDTH_US,
+				    effective_min_width_us,
 				    NRF_TIMER_SHORT_COMPARE0_STOP_MASK,
 				    false);
 	nrfx_timer_clear(&width_timer);
@@ -376,8 +417,8 @@ int hw_pulse_counter_init(void)
 
 	LOG_INF("hw pulse counter live: LPCOMP AIN0 refsel=VDD_3_8 HYST=on, "
 		"bench D7 GPIOTE HITOLO+LOTOHI, TIMER2 counter mode, "
-		"TIMER3 width filter threshold=%d µs",
-		(int)CONFIG_APP_PULSE_MIN_WIDTH_US);
+		"TIMER3 width filter threshold=%u µs",
+		(unsigned)effective_min_width_us);
 
 	return 0;
 }
@@ -385,4 +426,18 @@ int hw_pulse_counter_init(void)
 uint32_t hw_pulse_counter_read(void)
 {
 	return nrfx_timer_capture(&counter_timer, COUNTER_CAPTURE_CH);
+}
+
+void hw_pulse_counter_set_min_width_us(uint32_t min_width_us)
+{
+	/* CC[0] can be updated live — the CC0_STOP short logic just reads
+	 * the current value on the next comparison. Cheap: two register
+	 * writes (nrfx_timer_extended_compare also re-applies the SHORTS
+	 * mask, which is idempotent). No re-init needed.
+	 */
+	nrfx_timer_extended_compare(&width_timer,
+				    WIDTH_THRESHOLD_CH,
+				    min_width_us,
+				    NRF_TIMER_SHORT_COMPARE0_STOP_MASK,
+				    false);
 }

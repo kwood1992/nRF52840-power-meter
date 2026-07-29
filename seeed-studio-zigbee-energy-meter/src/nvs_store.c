@@ -17,6 +17,7 @@ LOG_MODULE_REGISTER(nvs_store, LOG_LEVEL_INF);
  */
 #define NVS_ID_ACCUMULATOR_TOTAL 1U
 #define NVS_ID_IMP_PER_KWH       2U  /* Metering Divisor override, issue #48 */
+#define NVS_ID_PULSE_MIN_WIDTH_US 3U /* Min-pulse-width filter, issue #59 */
 
 static struct nvs_fs fs;
 static bool initialized;
@@ -133,6 +134,42 @@ int nvs_store_save_imp_per_kwh(uint32_t imp_per_kwh)
 
 	ssize_t n = nvs_write(&fs, NVS_ID_IMP_PER_KWH,
 			      &imp_per_kwh, sizeof(imp_per_kwh));
+
+	if (n < 0) {
+		return (int)n;
+	}
+	return 0;
+}
+
+int nvs_store_load_pulse_min_width_us(uint32_t *out)
+{
+	if (!initialized) {
+		return -EINVAL;
+	}
+
+	uint32_t val = 0;
+	ssize_t n = nvs_read(&fs, NVS_ID_PULSE_MIN_WIDTH_US,
+			    &val, sizeof(val));
+
+	if (n == sizeof(val)) {
+		*out = val;
+		return 0;
+	}
+	if (n < 0) {
+		return (int)n;
+	}
+	/* Never written or short read — treat as "use compile-time default". */
+	return -ENOENT;
+}
+
+int nvs_store_save_pulse_min_width_us(uint32_t min_width_us)
+{
+	if (!initialized) {
+		return -EINVAL;
+	}
+
+	ssize_t n = nvs_write(&fs, NVS_ID_PULSE_MIN_WIDTH_US,
+			      &min_width_us, sizeof(min_width_us));
 
 	if (n < 0) {
 		return (int)n;

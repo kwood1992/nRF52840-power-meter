@@ -42,6 +42,21 @@ import * as m from 'zigbee-herdsman-converters/lib/modernExtend';
 // and the interview-time read.
 const DIVISOR_ATTR = {ID: 0x0302, type: 0x22};  // 770 / uint24
 
+// Manufacturer-specific min-pulse-width filter threshold in µs
+// (issue #59). The attribute lives in the same Metering (seMetering)
+// cluster as Divisor but carries a Nordic Semiconductor manufacturer
+// code (0x1015). Pass manufacturerCode alongside {ID, type} on the
+// attribute descriptor AND in zigbeeCommandOptions — belt-and-braces
+// so both interview-time reads and user-initiated writes tag the
+// frame with the mfr code and the on-device attribute lookup finds
+// our manufacturer-specific slot instead of returning UNSUPPORTED_ATTRIBUTE.
+const NORDIC_MANUF_CODE = 0x1015;
+const MIN_PULSE_WIDTH_ATTR = {
+    ID: 0xF000,
+    type: 0x21,          // 61440 / uint16
+    manufacturerCode: NORDIC_MANUF_CODE,
+};
+
 export default {
     zigbeeModel: ['xiao-power-meter'],
     model: 'xiao-power-meter',
@@ -97,6 +112,33 @@ export default {
                 + 'NVS across reboots. Requires the device to be awake — '
                 + 'short-press the button before writing if it has been '
                 + 'idle >30 s.',
+            valueMin: 100,
+            valueMax: 10000,
+            valueStep: 1,
+            access: 'ALL',
+            reporting: false,
+            entityCategory: 'config',
+        }),
+        // Min-pulse-width filter (issue #59). Rejects LPCOMP crossings
+        // shorter than this threshold on the hardware chain (LPCOMP UP
+        // → TIMER3 timer → TIMER2 count), keeping ambient flicker /
+        // torch-driver PWM out of the count. Default 1000 µs; range
+        // 100-10000 µs enforced by the firmware's calibration predicate.
+        //
+        // Sleepy-ED write timing: same gotcha as imp_per_kwh — press
+        // the button first if the device has been idle.
+        m.numeric({
+            name: 'min_pulse_width_us',
+            cluster: 'seMetering',
+            attribute: MIN_PULSE_WIDTH_ATTR,
+            zigbeeCommandOptions: {manufacturerCode: NORDIC_MANUF_CODE},
+            description:
+                'Minimum pulse width in microseconds. Pulses shorter than '
+                + 'this are rejected in hardware before the count register '
+                + 'increments — protects against ambient flicker and torch '
+                + 'PWM. Default 1000 µs; typical residential meter LEDs '
+                + 'emit pulses in the 20–100 ms range so any legal value '
+                + "can't miss real imp events. Persists in NVS.",
             valueMin: 100,
             valueMax: 10000,
             valueStep: 1,
