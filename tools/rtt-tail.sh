@@ -168,13 +168,20 @@ done
 # BEFORE `reset run` guarantees openocd has a live client to forward
 # to — otherwise the boot-time flood of log messages would be polled
 # and dropped by openocd before we're on the wire.
+#
+# `nc -d` = detach from stdin. Without it, BSD nc (macOS default)
+# reads its stdin and — when the parent shell's stdin is /dev/null
+# (invoked non-interactively, e.g. from another script) — sees EOF
+# immediately and shuts down the socket. openocd then drops the RTT
+# client and no data ever reaches the log file. -d makes nc a
+# read-only sink for the socket, which is exactly what we need.
 echo "-> streaming RTT (Ctrl+C to stop)"
 echo "----"
 if [ -n "$LOG_PATH" ]; then
-    nc 127.0.0.1 "$RTT_PORT" | tee "$LOG_PATH" &
+    nc -d 127.0.0.1 "$RTT_PORT" | tee "$LOG_PATH" &
     NC_PID=$!
 else
-    nc 127.0.0.1 "$RTT_PORT" &
+    nc -d 127.0.0.1 "$RTT_PORT" &
     NC_PID=$!
 fi
 
