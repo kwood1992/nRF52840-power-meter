@@ -21,4 +21,13 @@ int hw_pulse_counter_init(void);
  */
 uint32_t hw_pulse_counter_read(void);
 
+/* Retune the min-pulse-width filter's TIMER3 CC[0] threshold live (issue
+ * #59 impl-2). Callable from any thread. Caller MUST validate the value
+ * via calibration_is_valid_pulse_min_width_us() first — this function
+ * does no range check and will program whatever fits in TIMER3.CC[0].
+ * Persistence to NVS is the caller's responsibility; this only touches
+ * the running CC register.
+ */
+void hw_pulse_counter_set_min_width_us(uint32_t min_width_us);
+
 #endif

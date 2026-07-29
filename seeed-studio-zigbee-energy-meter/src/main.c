@@ -402,6 +402,26 @@ int main(void)
 	led_request(LED_PATTERN_BUTTON_ACK, LED_PRIO_BUTTON_ACK);
 #endif
 
+	/* NVS init MUST precede hw_pulse_counter_init — impl-2 of #59
+	 * makes the pulse-counter's TIMER3 threshold load from NVS during
+	 * its init path (see hw_pulse_counter.c:effective_min_width_us_at_init).
+	 * Also precedes wait_for_host_dtr_or_timeout so the boot-hold gesture
+	 * check window stays around 1 s from power-on. Any later placement
+	 * compounds with the 5 s DTR wait on a battery-powered boot with no
+	 * serial host and forces the user to hold the button for 8-10 s to
+	 * trigger the erase — well past the 3 s spec in issue #14. Cost of
+	 * the early placement: the "restored…" / "accumulator erased" LOG_INFs
+	 * fire before DTR asserts, so a monitor that attaches after boot
+	 * won't see them in the live stream (Zephyr's log backend still
+	 * buffers them for the current session).
+	 */
+	int nvs_err = nvs_store_init();
+
+	if (nvs_err) {
+		LOG_ERR("nvs_store_init failed: %d — proceeding without persistence",
+			nvs_err);
+	}
+
 #if IS_ENABLED(CONFIG_APP_HW_PULSE_COUNTER)
 	int hw_err = hw_pulse_counter_init();
 
@@ -418,17 +438,6 @@ int main(void)
 	LOG_WRN("hw_pulse_counter disabled by Kconfig — diagnostic build, no counting");
 #endif
 
-	/* NVS + boot-hold gesture check runs BEFORE wait_for_host_dtr_or_timeout
-	 * and zigbee_app_init so the total delay from power-on to the point the
-	 * hold poll starts stays around 1 s (Zephyr init + boot blink + GPIO
-	 * configure). Any later placement compounds with the 5 s DTR wait on a
-	 * battery-powered boot with no serial host and forces the user to hold
-	 * the button for 8-10 s to trigger the erase — well past the 3 s spec
-	 * in issue #14. Cost of the early placement: the "restored…" /
-	 * "accumulator erased" LOG_INFs fire before DTR asserts, so a monitor
-	 * that attaches after boot won't see them in the live stream (Zephyr's
-	 * log backend still buffers them for the current session).
-	 */
 	struct pulse_accumulator acc;
 	struct persist_policy policy;
 	struct report_gate pulse_heartbeat;
@@ -447,12 +456,7 @@ int main(void)
 	 */
 	int64_t last_saved_ms = k_uptime_get() - (int64_t)PERSIST_INTERVAL_MS;
 
-	int nvs_err = nvs_store_init();
-
-	if (nvs_err) {
-		LOG_ERR("nvs_store_init failed: %d — proceeding without persistence",
-			nvs_err);
-	} else {
+	if (nvs_err == 0) {
 		/* Erase-before-load: check the boot-hold gesture, overwrite
 		 * the accumulator record with 0 if held, then let load_total
 		 * run normally. After a successful erase the load returns 0
