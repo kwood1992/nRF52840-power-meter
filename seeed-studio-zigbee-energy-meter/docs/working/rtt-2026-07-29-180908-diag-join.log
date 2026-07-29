@@ -1,0 +1,19 @@
+ng-edge via GPIOTE→PPI→TIMER2 (no debounce)[0m
+[00:00:00.011,749] [0m<inf> main: boot-hold: sw0 held for 3000 ms at boot erases the NVS accumulator (4× LED confirm)[0m
+[00:00:00.013,732] [0m<inf> zigbee_app: Metering Divisor: imp/kWh=800 (from NVS)[0m
+[00:00:00.014,160] [0m<inf> zigbee_app_utils: Enabled sleepy end device behavior.[0m
+[00:00:00.014,556] [0m<inf> zigbee_app: rx-on-when-idle probe [post-configure-sleepy]: FALSE (joined=0)[0m
+[00:00:00.015,106] [0m<inf> zigbee_app: hfclk probe [post-configure-sleepy]: HFCLKSTAT=0x00010000 HFCLKRUN=0x00000000 xtal_running=0[0m
+[00:00:00.015,747] [0m<inf> zigbee_app: timer probe [post-configure-sleepy]: T0 MODE=0 BITMODE=0 PRESCALER=4 INTENSET=0x00000000 CC5_delta=0 running=0[0m
+[00:00:00.016,479] [0m<inf> zigbee_app: timer probe [post-configure-sleepy]: T1 MODE=0 BITMODE=3 PRESCALER=4 INTENSET=0x00000000 CC5_delta=0 running=0[0m
+[00:00:00.017,242] [0m<inf> zigbee_app: timer probe [post-configure-sleepy]: T2 MODE=1 BITMODE=3 PRESCALER=4 INTENSET=0x00000000 CC5_delta=0 running=0[0m
+[00:00:00.017,974] [0m<inf> zigbee_app: timer probe [post-configure-sleepy]: T3 MODE=0 BITMODE=0 PRESCALER=4 INTENSET=0x00000000 CC5_delta=0 running=0[0m
+[00:00:00.018,737] [0m<inf> zigbee_app: timer probe [post-configure-sleepy]: T4 MODE=0 BITMODE=0 PRESCALER=4 INTENSET=0x00000000 CC5_delta=0 running=0[0m
+[00:00:00.045,288] [0m<inf> zigbee_app_utils: Production configuration is not present or invalid (status: -1)[0m
+[00:00:00.046,051] [0m<inf> zigbee_app_utils: Zigbee stack initialized[0m
+[00:00:00.219,726] [0m<inf> main: pulse(s) counted: delta=61 accumulator_total=2794269[0m
+[00:00:00.242,034] [0m<inf> main: persisted accumulator_total=2794269[0m
+[00:00:01.242,919] [0m<inf> main: pulse(s) counted: delta=1 accumulator_total=2794270[0m
+[00:00:05.020,080] [0m<inf> zigbee_app_utils: Unimplemented signal (signal: 66, status: 0)[0m
+[00:00:08.757,293] [0m<inf> zigbee_app_utils: Unimplemented signal (signal: 56, status: 0)[0m
+[00:00:08.758
