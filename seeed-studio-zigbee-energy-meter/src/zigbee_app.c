@@ -240,6 +240,48 @@ static void apply_sleepy_poll_intervals_if_joined(zb_ret_t status)
  */
 #if IS_ENABLED(CONFIG_APP_HW_HFCLK_PROBE)
 
+/*
+ * TIMER0-4 register snapshot + running-vs-stopped probe.
+ *
+ * MODE=0 (Timer, not Counter) + timer actually counting is what anchors
+ * PCLK16M and keeps HFCLK on HFINT. INTENSET alone doesn't answer the
+ * running question — a driver can leave IRQs disabled while using
+ * events via PPI or shortcuts, so INTENSET=0 does NOT mean stopped.
+ *
+ * To detect running, do two back-to-back TASKS_CAPTURE hits into CC[5]
+ * and log the delta. Non-zero delta → timer is running RIGHT NOW.
+ * CC[5] is the least-likely CC slot to conflict with a driver's use
+ * (they typically use CC[0..2]); still a soft assumption.
+ *
+ * The nRF52840 has TIMER0-4 as separate peripheral instances at
+ * distinct base addresses; iterate via an array of pointers.
+ */
+static NRF_TIMER_Type * const app_timers[] = {
+	NRF_TIMER0, NRF_TIMER1, NRF_TIMER2, NRF_TIMER3, NRF_TIMER4,
+};
+
+static void log_timer_status(const char *where)
+{
+	for (size_t i = 0; i < ARRAY_SIZE(app_timers); i++) {
+		NRF_TIMER_Type *t = app_timers[i];
+		uint32_t v1, v2;
+
+		t->TASKS_CAPTURE[5] = 1;
+		v1 = t->CC[5];
+		t->TASKS_CAPTURE[5] = 1;
+		v2 = t->CC[5];
+
+		LOG_INF("timer probe [%s]: T%u MODE=%u BITMODE=%u PRESCALER=%u INTENSET=0x%08x CC5_delta=%u running=%d",
+			where, (unsigned)i,
+			(unsigned)t->MODE,
+			(unsigned)t->BITMODE,
+			(unsigned)t->PRESCALER,
+			(unsigned)t->INTENSET,
+			(unsigned)(v2 - v1),
+			(v2 != v1) ? 1 : 0);
+	}
+}
+
 static void log_hfclk_status(const char *where)
 {
 	bool xtal_running = nrf_clock_hf_is_running(
@@ -249,6 +291,7 @@ static void log_hfclk_status(const char *where)
 
 	LOG_INF("hfclk probe [%s]: HFCLKSTAT=0x%08x HFCLKRUN=0x%08x xtal_running=%d",
 		where, hfclkstat, hfclkrun, xtal_running ? 1 : 0);
+	log_timer_status(where);
 }
 
 #else /* !CONFIG_APP_HW_HFCLK_PROBE */
