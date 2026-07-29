@@ -189,16 +189,43 @@ what the ticket wants.
 | Runtime retune of threshold | Single-register write | Variable assignment |
 | Bench verification | Same for both: `tools/xiao-pulse-burst.sh` at threshold ± 100 µs |
 
+## D7 bench-inject path — route through the filter
+
+**Correction from an earlier draft of this spike.** The current firmware
+wires D7 GPIOTE HITOLO → PPI → TIMER2 COUNT directly, bypassing LPCOMP.
+Leaving it that way would mean the ticket's AC bench test
+(`xiao-pulse.sh` on D7 at threshold ± 100 µs) exercises a path that
+doesn't have the filter on it — the test would pass trivially and prove
+nothing about the LPCOMP-side filter behaviour.
+
+Route D7 through the same TIMER3 gate so the filter applies uniformly:
+
+- **D7 GPIOTE HITOLO** (pulse start) → PPI → TIMER3 START/CLEAR (fork)
+- **D7 GPIOTE LOTOHI** (pulse end) → PPI → TIMER3 STOP/CLEAR (fork)
+- TIMER3 CC[0] → TIMER2 COUNT — shared with the LPCOMP path
+
+Requires two GPIOTE channels for D7 (current code allocates one HITOLO
+channel; add a LOTOHI channel). GPIOTE has 8 total; well within budget.
+
+Updated PPI budget:
+
+- 2 configurable channels for LPCOMP UP/DOWN → TIMER3 (+ 2 forks)
+- 2 configurable channels for D7 HITOLO/LOTOHI → TIMER3 (+ 2 forks)
+- 1 configurable channel for TIMER3 CC[0] → TIMER2 COUNT
+- **Total: 5 configurable + 4 forks** (out of 20 + 6).
+
+Pi-side note: `tools/xiao-pulse.sh` currently uses `sleep` with awk
+fractional seconds; sub-millisecond width control is fuzzy at that
+resolution. The impl PR should either extend `xiao-pulse.sh` to accept a
+µs argument backed by a `nanosleep`-based helper, or use `python -c
+'import time; time.sleep(...)'` which is generally more accurate for
+short intervals than shell `sleep`. Cheap; part of the impl PR scope.
+
 ## Non-goals (still non-goals after the spike)
 
 - **Min-gap / debounce** (post-pulse hold-off). Different noise profile, out
   of scope; the ticket explicitly parked it as a separately-trackable
   follow-up if bench evidence warrants.
-- Backfilling the D7 bench pulse chain through the same filter. Currently
-  D7 GPIOTE → TIMER2 COUNT directly (bypassing LPCOMP entirely). Bench
-  injects are meant to be 1:1 test signals; passing them through the filter
-  would make bench verification harder, not easier. Leave the D7 path
-  filter-bypassed.
 
 ## Follow-up implementation scope (what a PR looks like)
 
