@@ -2,7 +2,7 @@ CC      ?= cc
 CFLAGS  ?= -std=c11 -Wall -Wextra -Wpedantic -Werror -O0 -g -I../src
 BUILD   := build
 
-TESTS := test_pulse_accumulator test_persist_policy test_button_press_classifier test_button_action test_metering_scale test_report_gate test_led_priority test_calibration
+TESTS := test_pulse_accumulator test_persist_policy test_button_press_classifier test_button_action test_metering_scale test_report_gate test_led_priority test_calibration test_battery_level
 
 .PHONY: all test clean
 all: test
@@ -34,6 +34,9 @@ $(BUILD)/test_led_priority: test_led_priority.c ../src/led_priority.c ../src/led
 
 $(BUILD)/test_calibration: test_calibration.c ../src/calibration.c ../src/calibration.h | $(BUILD)
 	$(CC) $(CFLAGS) -o $@ test_calibration.c ../src/calibration.c
+
+$(BUILD)/test_battery_level: test_battery_level.c ../src/battery_level.c ../src/battery_level.h | $(BUILD)
+	$(CC) $(CFLAGS) -o $@ test_battery_level.c ../src/battery_level.c
 
 $(BUILD):
 	@mkdir -p $(BUILD)

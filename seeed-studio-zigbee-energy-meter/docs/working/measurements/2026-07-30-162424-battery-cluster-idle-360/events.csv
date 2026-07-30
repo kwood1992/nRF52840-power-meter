@@ -1,0 +1,14 @@
+# z2m-events started=2026-07-30T16:24:25+1000 started_wallclock_ms=1785392665419
+# ieee=0xf4ce361b0656e80e duration_s=365.0
+# note=label=battery-cluster-idle-360 fw=7a61382+dirty
+wallclock_ms,topic,field,value
+1785392668646,zigbee2mqtt/0xf4ce361b0656e80e,energy,3504.16
+1785392668646,zigbee2mqtt/0xf4ce361b0656e80e,imp_per_kwh,800
+1785392668646,zigbee2mqtt/0xf4ce361b0656e80e,linkquality,None
+1785392668646,zigbee2mqtt/0xf4ce361b0656e80e,min_pulse_width_us,None
+1785392668646,zigbee2mqtt/0xf4ce361b0656e80e,power,None
+1785392931068,zigbee2mqtt/0xf4ce361b0656e80e,energy,3504.17
+1785392931068,zigbee2mqtt/0xf4ce361b0656e80e,imp_per_kwh,800
+1785392931068,zigbee2mqtt/0xf4ce361b0656e80e,linkquality,60
+1785392931068,zigbee2mqtt/0xf4ce361b0656e80e,min_pulse_width_us,None
+1785392931068,zigbee2mqtt/0xf4ce361b0656e80e,power,None

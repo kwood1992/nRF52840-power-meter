@@ -3,9 +3,13 @@
 
 /*
  * Custom Zigbee endpoint declaration for the pulse-counting power-meter
- * app. Publishes three server clusters:
+ * app. Publishes five server clusters:
  *
  *   * Basic     (0x0000) — zcl_version + power_source
+ *   * PowerCfg  (0x0001) — BatteryVoltage + BatteryPercentageRemaining,
+ *                          sampled from the SAADC on the 5-min report
+ *                          tick (issue #8). Z2M maps these to the
+ *                          standard `battery` / `voltage` exposes.
  *   * Identify  (0x0003) — identify_time (Z2M's pair-time blink hook)
  *   * Metering  (0x0702) — CurrentSummationDelivered as a live u48 of
  *                          the pulse accumulator, plus Multiplier /
@@ -44,8 +48,8 @@
 #define ZB_METER_DEVICE_ID   0x0053
 #define ZB_METER_DEVICE_VER  0
 
-/* Server clusters: Basic, Identify, Metering, Poll Control. */
-#define ZB_METER_IN_CLUSTER_NUM   4
+/* Server clusters: Basic, Power Config, Identify, Metering, Poll Control. */
+#define ZB_METER_IN_CLUSTER_NUM   5
 
 /* No client clusters (nothing on the app endpoint needs to send
  * commands to a peer).
@@ -58,18 +62,31 @@
  * CurrentSummationDelivered plus two more attributes if we ever add
  * them. Storage is a few tens of bytes per slot; overbudgeting
  * slightly is cheap.
+ *
+ * +2 for Power Configuration's BatteryVoltage and
+ * BatteryPercentageRemaining, both declared reportable in zigbee_app.c.
+ * Without the extra slots ZBOSS has nowhere to register their reporting
+ * info and the battery values would never update in Z2M after pairing.
  */
-#define ZB_METER_REPORT_ATTR_COUNT  ZB_ZCL_METERING_REPORT_ATTR_COUNT
+#define ZB_METER_REPORT_ATTR_COUNT  (ZB_ZCL_METERING_REPORT_ATTR_COUNT + 2)
 
 
 #define ZB_DECLARE_METER_CLUSTER_LIST(                                    \
 		cluster_list_name,                                        \
 		basic_attr_list,                                          \
+		power_config_attr_list,                                   \
 		identify_attr_list,                                       \
 		metering_attr_list,                                       \
 		poll_control_attr_list)                                   \
 zb_zcl_cluster_desc_t cluster_list_name[] =                               \
 {                                                                         \
+	ZB_ZCL_CLUSTER_DESC(                                              \
+		ZB_ZCL_CLUSTER_ID_POWER_CONFIG,                           \
+		ZB_ZCL_ARRAY_SIZE(power_config_attr_list, zb_zcl_attr_t), \
+		(power_config_attr_list),                                 \
+		ZB_ZCL_CLUSTER_SERVER_ROLE,                               \
+		ZB_ZCL_MANUF_CODE_INVALID                                 \
+	),                                                                \
 	ZB_ZCL_CLUSTER_DESC(                                              \
 		ZB_ZCL_CLUSTER_ID_IDENTIFY,                               \
 		ZB_ZCL_ARRAY_SIZE(identify_attr_list, zb_zcl_attr_t),     \
@@ -114,6 +131,7 @@ zb_zcl_cluster_desc_t cluster_list_name[] =                               \
 		out_clust_num,                                                         \
 		{                                                                      \
 			ZB_ZCL_CLUSTER_ID_BASIC,                                       \
+			ZB_ZCL_CLUSTER_ID_POWER_CONFIG,                                \
 			ZB_ZCL_CLUSTER_ID_IDENTIFY,                                    \
 			ZB_ZCL_CLUSTER_ID_METERING,                                    \
 			ZB_ZCL_CLUSTER_ID_POLL_CONTROL                                 \

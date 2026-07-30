@@ -38,7 +38,7 @@ hard conflicts that reshaped it:
 | Sensor | **Phototransistor** (visible/IR), load resistor, light-sealed snout |
 | Counting | Phototransistor → on-chip **LPCOMP** → **PPI** → **TIMER (counter mode)**, all in hardware during System-ON sleep, zero CPU wakes |
 | Report | Wake via RTC timer every **5 min**, send **cumulative** count |
-| Zigbee model | **Metering cluster 0x0702** `CurrentSummationDelivered`, `Multiplier=1`, `Divisor=1000` (imp/kWh, adjustable) → HA reads **kWh** natively |
+| Zigbee model | **Metering cluster 0x0702** `CurrentSummationDelivered`, `Multiplier=1`, `Divisor=1000` (imp/kWh, adjustable) → HA reads **kWh** natively. Plus **Power Config 0x0001** `BatteryVoltage` + `BatteryPercentageRemaining` → Z2M `battery` / `voltage`. **No `InstantaneousDemand`** — see below |
 | Power | **2×AAA series = 3.0 V** direct to BAT/VDD (1.7–3.6 V range). No boost/LDO. Uses kit spring terminals in a printed compartment |
 | Coordinator | **Zigbee2MQTT** + custom external converter |
 | Enclosure | 3D-printed all-in-one, opaque phototransistor snout, **3M foam-tape** mount (split sensor-head = documented fallback) |
@@ -81,8 +81,25 @@ Base on a Nordic Zigbee sample (nearest metering/sensor sample) and add:
 ## Zigbee2MQTT integration
 
 - External converter (`.js`) defining device fingerprint (modelID/manufacturer)
-  and exposing the Metering cluster as an **energy (kWh)** sensor.
+  and exposing the Metering cluster as an **energy (kWh)** sensor. Lives in
+  the repo at `external-converters/xiao-power-meter.js` and must be deployed to the Z2M host's
+  `external_converters/` — it is half of the device interface and has to move
+  in step with any firmware cluster change.
 - In HA: kWh → Energy Dashboard; power (W) via HA derivative helper.
+
+### No instantaneous power attribute (decided 2026-07-30)
+
+`InstantaneousDemand` is deliberately not published, and the converter exposes
+no `power`. A pulse counter cannot produce an honest instantaneous demand:
+between two pulses it knows only "no pulse yet", so any W figure divides by an
+open-ended interval — reading zero under light load and spiking when a pulse
+lands. In practice the exposed `power` sensor sat at 0 permanently, which is
+worse than absent because HA graphs it.
+
+All three of `InstantaneousDemand`, `DemandFormatting` and
+`HistoricalConsumptionFormatting` are optional in SE 1.4, so dropping them is
+spec-legal. Derive power from the kWh series with the HA derivative helper, as
+the row above already specified.
 - Calibration = change `Divisor` (no reflash) if meter isn't 1000 imp/kWh.
 
 ## Testing (TDD — write tests first, per project rules)
