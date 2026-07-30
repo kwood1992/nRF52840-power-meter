@@ -79,6 +79,40 @@ config APP_ZIGBEE_WAKE_TURBO_POLL_MS
 	  after pressing the button, and it costs ~30 s of ~100 ms polling
 	  only when the user asks for it — there is no steady-state cost.
 
+config APP_ZIGBEE_CHECKIN_INTERVAL_S
+	int "Poll Control check-in interval (seconds)"
+	default 900
+	depends on APP_ZIGBEE_SLEEPY_ED
+	help
+	  How often the Poll Control (0x0020) server sends a Check-In command
+	  to its bound client (issue #62, option B). This is what makes a
+	  write work with nobody at the device: zigbee-herdsman defaults a
+	  genPollCtrl device's pendingRequestTimeout to the check-in interval,
+	  so instead of failing at its 10 s ZCL deadline it *queues* the write
+	  and flushes it when our Check-In arrives (it answers with
+	  startFastPolling=1).
+
+	  So this value is the worst-case latency for a scripted / unattended
+	  write, and also the lifetime of Z2M's pending-request queue. 900 s
+	  (15 min) trades a bounded wait against ~96 check-ins/day; each is one
+	  short ZCL exchange, which is negligible against the sub-50 µA sleep
+	  floor measured in #58. Raise it to spend less; lower it for snappier
+	  unattended writes.
+
+	  A short button press still opens an immediate window
+	  (APP_ZIGBEE_WAKE_TURBO_POLL_MS) when someone is standing there — the
+	  two mechanisms are complementary.
+
+config APP_ZIGBEE_FAST_POLL_TIMEOUT_S
+	int "Poll Control fast-poll timeout (seconds)"
+	default 20
+	depends on APP_ZIGBEE_SLEEPY_ED
+	help
+	  How long the device stays in fast poll after a Check-In Response that
+	  requests it. Must be long enough for Z2M to drain its queued requests
+	  for this device; 20 s clears a handful of attribute writes with
+	  margin. Must be shorter than the check-in interval above.
+
 config APP_ZIGBEE_LONG_POLL_INTERVAL_MS
 	int "Long-poll interval after interview window (ms)"
 	default 60000
