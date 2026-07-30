@@ -70,42 +70,34 @@ REMOTE_LOG="/tmp/openocd-rtt.log"
 SSH_TUNNEL_PID=""
 NC_PID=""
 
-# `echo shutdown | nc` needs no sudo — openocd's own control port
-# handles the process exit. Works around the memory rule that
-# passwordless sudo on the Pi is scoped to `openocd` only, so
-# `sudo pkill` would prompt for a password non-interactively.
-pi_stop_openocd() {
-    ssh "$PI_ALIAS" \
-        "echo shutdown | nc -q 1 127.0.0.1 $OPENOCD_TELNET_PORT 2>/dev/null || true" \
-        >/dev/null 2>&1 || true
-}
-
-# True when something is already listening on openocd's telnet control
-# port — i.e. an openocd (probably a leaked one) holds the SWD bus.
-pi_openocd_running() {
-    ssh "$PI_ALIAS" \
-        "nc -z 127.0.0.1 $OPENOCD_TELNET_PORT >/dev/null 2>&1" >/dev/null 2>&1
-}
+# SWD-bus detection and teardown live in the shared lib so this script
+# and flash-swd.sh cannot diverge on the check that keeps two openocds
+# off the same wires (issue #68). Detection is by process, not by
+# control port — see tools/lib-swd.sh for why the port probe alone
+# gives a false all-clear.
+# shellcheck source=tools/lib-swd.sh
+source "$REPO_ROOT/tools/lib-swd.sh"
 
 # `--stop` exists so a leaked instance can be cleared without sudo:
 # passwordless sudo on the Pi is scoped to `openocd` only, so
 # `sudo pkill -f openocd` prompts for a password and can't be scripted.
 # openocd's own telnet `shutdown` needs no elevation at all.
 if [ "${1:-}" = "--stop" ]; then
-    if pi_openocd_running; then
-        echo "-> openocd is running on $PI_ALIAS; sending shutdown..."
-        pi_stop_openocd
-        sleep 1
-        if pi_openocd_running; then
-            echo "error: openocd still listening on port $OPENOCD_TELNET_PORT." >&2
-            echo "  Its telnet port may be wedged. Clear it interactively with:" >&2
-            echo "    ssh $PI_ALIAS 'sudo pkill -f openocd'" >&2
-            exit 1
-        fi
-        echo "openocd stopped — SWD bus released."
-    else
+    STOP_COUNT="$(pi_openocd_count)"
+    if [ "$STOP_COUNT" -eq 0 ]; then
         echo "no openocd running on $PI_ALIAS — nothing to stop."
+        exit 0
     fi
+    echo "-> $STOP_COUNT openocd process(es) on $PI_ALIAS; sending shutdown..."
+    if ! pi_release_swd_bus; then
+        echo "error: $(pi_openocd_count) openocd process(es) survived the shutdown." >&2
+        echo "  PIDs: $(pi_openocd_pids | tr '\n' ' ')" >&2
+        echo "  An openocd that lost the telnet-port bind cannot be shut down" >&2
+        echo "  gracefully, so this is the expected #68 failure mode." >&2
+        pi_openocd_manual_clear_advice
+        exit 1
+    fi
+    echo "openocd stopped — SWD bus released (0 processes remain)."
     exit 0
 fi
 
@@ -143,9 +135,21 @@ cleanup() {
 # and the EXIT trap never fires.
 trap cleanup EXIT INT TERM HUP
 
+# Clear any stale openocd and PROVE it is gone before starting ours.
+# The old code sent `shutdown`, slept 0.5 s and started a second
+# openocd regardless — so a wedged instance (the #68 state, where the
+# telnet port is unresponsive and `shutdown` is silently ignored) left
+# two masters driving SWCLK/SWDIO. That is the bus fight that corrupted
+# an in-flight erase; this script is the one that leaks the process, so
+# it is the one that most needs the guard.
 echo "-> stopping any stale openocd on $PI_ALIAS..."
-pi_stop_openocd
-sleep 0.5
+if ! pi_release_swd_bus; then
+    echo "error: $(pi_openocd_count) openocd process(es) still hold the SWD bus." >&2
+    echo "  PIDs: $(pi_openocd_pids | tr '\n' ' ')" >&2
+    echo "  Refusing to start a second one — see issue #68." >&2
+    pi_openocd_manual_clear_advice
+    exit 1
+fi
 
 # Same interface + target config as flash-swd.sh, plus RTT setup, and
 # `reset halt` (not `reset run`) so the target stays paused until the
