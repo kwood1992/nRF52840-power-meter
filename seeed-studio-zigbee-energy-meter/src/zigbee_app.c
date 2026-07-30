@@ -5,6 +5,9 @@
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/sys/atomic.h>
+#if defined(CONFIG_APP_BATTERY_REPORTING)
+#include <zephyr/drivers/adc.h>
+#endif
 
 #include <zboss_api.h>
 #include <zboss_api_addons.h>
@@ -17,6 +20,7 @@
 #include <hal/nrf_clock.h>
 #endif
 
+#include "battery_level.h"
 #include "calibration.h"
 #include "hw_pulse_counter.h"
 #include "led_controller.h"
@@ -102,11 +106,21 @@ struct zb_device_ctx {
 	zb_uint8_t  metering_unit_of_measure;
 	zb_uint8_t  metering_summation_formatting;
 	zb_uint8_t  metering_device_type;
-	zb_int24_t  metering_instantaneous_demand;
-	zb_uint8_t  metering_demand_formatting;
-	zb_uint8_t  metering_historical_consumption_formatting;
 	zb_uint24_t metering_multiplier;
 	zb_uint24_t metering_divisor;
+
+	/*
+	 * Power Configuration (0x0001) — issue #8. Both are u8 on the wire:
+	 * BatteryVoltage in 100 mV units, BatteryPercentageRemaining in
+	 * 0.5 % units. Encoding lives in battery_level.c so it can be
+	 * host-tested; these fields only ever hold the encoded value.
+	 *
+	 * Initialised to BATTERY_LEVEL_ZCL_UNKNOWN (0xFF) so a read taken
+	 * before the first SAADC sample reports "unknown" rather than a
+	 * plausible-looking flat battery.
+	 */
+	zb_uint8_t power_config_battery_voltage;
+	zb_uint8_t power_config_battery_percentage;
 
 	/* Manufacturer-specific min-pulse-width filter threshold in µs
 	 * (issue #59 impl-2). ZCL type u16; Kconfig range 100-10000
@@ -190,12 +204,22 @@ ZB_ZCL_START_DECLARE_ATTRIB_LIST_CLUSTER_REVISION(metering_attr_list,
 			     &dev_ctx.metering_summation_formatting)
 	ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_METERING_METERING_DEVICE_TYPE_ID,
 			     &dev_ctx.metering_device_type)
-	ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_METERING_INSTANTANEOUS_DEMAND_ID,
-			     &dev_ctx.metering_instantaneous_demand)
-	ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_METERING_DEMAND_FORMATTING_ID,
-			     &dev_ctx.metering_demand_formatting)
-	ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_METERING_HISTORICAL_CONSUMPTION_FORMATTING_ID,
-			     &dev_ctx.metering_historical_consumption_formatting)
+	/*
+	 * InstantaneousDemand / DemandFormatting / HistoricalConsumption-
+	 * Formatting are deliberately NOT declared.
+	 *
+	 * A pulse counter has no way to produce a meaningful instantaneous
+	 * demand: between two pulses it knows only "no pulse yet", so any
+	 * W figure would be a division by an open-ended interval that reads
+	 * as zero while the load is small and spikes when a pulse lands.
+	 * Publishing it meant Z2M exposed a `power` sensor that was
+	 * permanently 0 — worse than absent, because HA graphs it.
+	 *
+	 * HA derives real power from the kWh series with a derivative
+	 * helper, which is what the design doc specifies. All three are
+	 * optional in SE 1.4 (DemandFormatting is only mandatory when
+	 * InstantaneousDemand is present), so dropping them is spec-legal.
+	 */
 	ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_METERING_MULTIPLIER_ID,
 			     &dev_ctx.metering_multiplier)
 	ZB_ZCL_SET_ATTR_DESC_M(ZB_ZCL_ATTR_METERING_DIVISOR_ID,
@@ -216,6 +240,48 @@ ZB_ZCL_START_DECLARE_ATTRIB_LIST_CLUSTER_REVISION(metering_attr_list,
 		ZB_ZCL_ATTR_ACCESS_READ_WRITE,
 		ZB_ZCL_MIN_PULSE_WIDTH_MANUF_CODE,
 		&dev_ctx.metering_min_pulse_width_us)
+ZB_ZCL_FINISH_DECLARE_ATTRIB_LIST;
+
+/*
+ * Power Configuration server (0x0001) — issue #8.
+ *
+ * Hand-rolled rather than using ZB_ZCL_DECLARE_POWER_CONFIG_ATTRIB_LIST,
+ * because that macro declares the BatterySize / BatteryQuantity /
+ * BatteryRatedVoltage / BatteryAlarmMask / BatteryVoltageMinThreshold set
+ * but NOT BatteryPercentageRemaining (0x0021) — which is the one Z2M maps
+ * to the `battery` expose. Declaring only what we actually populate keeps
+ * the simple descriptor small and avoids advertising attributes that
+ * would read as zero forever.
+ *
+ * Both descriptors are hand-rolled with ZB_ZCL_SET_ATTR_DESC_M rather
+ * than the stock ZB_SET_ATTR_DESCR_WITH_* macros, to add
+ * ZB_ZCL_ATTR_ACCESS_REPORTING to BatteryVoltage.
+ *
+ * ZBOSS ships BatteryVoltage as plain READ_ONLY (zb_zcl_power_config.h
+ * :477-484) — no reporting bit — while BatteryPercentageRemaining gets
+ * READ_ONLY | REPORTING. Left as shipped, a coordinator can only read
+ * voltage at interview time, so Z2M's `voltage` would show the value
+ * captured during pairing and then never move. Since both are refreshed
+ * by the same 5-minute SAADC sample, both are made reportable and the
+ * endpoint reserves two extra reporting slots (see zb_meter_ep.h).
+ *
+ * Using SET_ATTR_DESC_M for both also sidesteps a comma trap: the
+ * ZB_SET_ATTR_DESCR_WITH_* macros expand to a bare {...} initialiser and
+ * do NOT supply their own separator, whereas SET_ATTR_DESC* do. Mixing
+ * the two families in one list fails with "expected '}' before '{'".
+ */
+ZB_ZCL_START_DECLARE_ATTRIB_LIST_CLUSTER_REVISION(power_config_attr_list,
+						  ZB_ZCL_POWER_CONFIG)
+	ZB_ZCL_SET_ATTR_DESC_M(ZB_ZCL_ATTR_POWER_CONFIG_BATTERY_VOLTAGE_ID,
+			       &dev_ctx.power_config_battery_voltage,
+			       ZB_ZCL_ATTR_TYPE_U8,
+			       ZB_ZCL_ATTR_ACCESS_READ_ONLY |
+				       ZB_ZCL_ATTR_ACCESS_REPORTING)
+	ZB_ZCL_SET_ATTR_DESC_M(ZB_ZCL_ATTR_POWER_CONFIG_BATTERY_PERCENTAGE_REMAINING_ID,
+			       &dev_ctx.power_config_battery_percentage,
+			       ZB_ZCL_ATTR_TYPE_U8,
+			       ZB_ZCL_ATTR_ACCESS_READ_ONLY |
+				       ZB_ZCL_ATTR_ACCESS_REPORTING)
 ZB_ZCL_FINISH_DECLARE_ATTRIB_LIST;
 
 /*
@@ -247,6 +313,7 @@ ZB_ZCL_DECLARE_POLL_CONTROL_ATTRIB_LIST(
 ZB_DECLARE_METER_CLUSTER_LIST(
 	app_clusters,
 	basic_attr_list,
+	power_config_attr_list,
 	identify_attr_list,
 	metering_attr_list,
 	poll_control_attr_list);
@@ -276,6 +343,30 @@ static bool endpoint_registered;
  * device callback on every accepted Divisor write.
  */
 static uint32_t effective_divisor;
+
+#if defined(CONFIG_APP_BATTERY_REPORTING)
+/*
+ * Battery sampling (#8).
+ *
+ * Split across two contexts on purpose:
+ *   - battery_sample() does the blocking SAADC conversion in the CALLER's
+ *     context (the report work queue), where blocking is fine.
+ *   - battery_write_attributes() runs on the ZBOSS thread from the report
+ *     callback and only touches the ZCL attribute table.
+ *
+ * Doing the conversion on the ZBOSS thread would block the stack's
+ * scheduler for the acquisition window, which is the kind of thing that
+ * shows up later as a missed poll rather than an obvious failure.
+ *
+ * Declared here rather than next to those functions because
+ * power_config_attrs_init() (further up) needs the spec at init time.
+ */
+static const struct adc_dt_spec battery_adc =
+	ADC_DT_SPEC_GET(DT_PATH(zephyr_user));
+
+static uint8_t pending_battery_voltage = BATTERY_LEVEL_ZCL_UNKNOWN;
+static uint8_t pending_battery_percentage = BATTERY_LEVEL_ZCL_UNKNOWN;
+#endif
 
 /* Set by zigbee_app_start_join() (Zephyr thread context) and cleared by
  * the ZBOSS signal handler on ZB_BDB_SIGNAL_STEERING (ZBOSS thread
@@ -614,20 +705,10 @@ static void metering_attrs_init(void)
 	dev_ctx.metering_summation_formatting = METERING_SUMM_FORMATTING;
 	dev_ctx.metering_device_type = METERING_DEVICE_TYPE;
 
-	/* Instantaneous demand — the design doc doesn't publish a live
-	 * W/kW figure (HA derives it via the derivative helper). Leave
-	 * zero. Demand/historical formatting fields are ignored by Z2M
-	 * when the demand attribute isn't reporting, so 0 is safe.
-	 * ZB_INT24_FROM_INT32 clamps in-place and needs an l-value.
+	/* InstantaneousDemand is no longer declared at all — see the
+	 * attribute-list comment above for why a pulse counter can't
+	 * produce one honestly.
 	 */
-	{
-		zb_int32_t demand_init = 0;
-
-		ZB_INT24_FROM_INT32(dev_ctx.metering_instantaneous_demand,
-				    demand_init);
-	}
-	dev_ctx.metering_demand_formatting = 0;
-	dev_ctx.metering_historical_consumption_formatting = 0;
 
 	/* Multiplier / Divisor. Both are u24 in the wire representation
 	 * (packed structs on nRF, low+high halves). Use the ZBOSS
@@ -654,8 +735,23 @@ static void metering_attrs_init(void)
 	if (rc == 0) {
 		if (calibration_is_valid_imp_per_kwh(nvs_val)) {
 			divisor = nvs_val;
-			LOG_INF("Metering Divisor: imp/kWh=%u (from NVS)",
-				(unsigned)divisor);
+			/* Name the compile-time default alongside the active
+			 * value when they differ. A persisted calibration
+			 * survives factory reset by design (it describes the
+			 * meter, not the pairing), so "why is my kWh 25 %
+			 * out?" is otherwise only answerable by reading the
+			 * Divisor attribute back over the air.
+			 */
+			if (divisor != (uint32_t)METERING_DEFAULT_DIVISOR) {
+				LOG_INF("Metering Divisor: imp/kWh=%u (from NVS; "
+					"compile-time default is %u — calibration "
+					"override is active)",
+					(unsigned)divisor,
+					(unsigned)METERING_DEFAULT_DIVISOR);
+			} else {
+				LOG_INF("Metering Divisor: imp/kWh=%u (from NVS)",
+					(unsigned)divisor);
+			}
 		} else {
 			LOG_WRN("NVS imp/kWh=%u out of range [%u..%u] — "
 				"using compile-time default %u",
@@ -693,6 +789,42 @@ static void metering_attrs_init(void)
 		min_width_us = nvs_width;
 	}
 	dev_ctx.metering_min_pulse_width_us = (zb_uint16_t)min_width_us;
+}
+
+/*
+ * Power Configuration (0x0001) initial values — issue #8.
+ *
+ * Both start at the ZCL 0xFF "unknown" sentinel rather than 0. A
+ * coordinator that reads the cluster between join and the first report
+ * tick then sees "no reading yet" instead of a flat battery, which would
+ * otherwise fire HA's low-battery automations on every re-pair.
+ */
+static void power_config_attrs_init(void)
+{
+	dev_ctx.power_config_battery_voltage = BATTERY_LEVEL_ZCL_UNKNOWN;
+	dev_ctx.power_config_battery_percentage = BATTERY_LEVEL_ZCL_UNKNOWN;
+
+#if defined(CONFIG_APP_BATTERY_REPORTING)
+	if (!adc_is_ready_dt(&battery_adc)) {
+		LOG_ERR("battery ADC %s not ready — battery will report unknown",
+			battery_adc.dev ? battery_adc.dev->name : "(null)");
+		return;
+	}
+
+	int err = adc_channel_setup_dt(&battery_adc);
+
+	if (err != 0) {
+		LOG_ERR("battery ADC channel setup failed: %d", err);
+		return;
+	}
+
+	LOG_INF("battery reporting enabled: %u mV = 0%%, %u mV = 100%%",
+		(unsigned)CONFIG_APP_BATTERY_EMPTY_MV,
+		(unsigned)CONFIG_APP_BATTERY_FULL_MV);
+#else
+	LOG_INF("battery reporting disabled at build time — "
+		"Power Config cluster will report unknown");
+#endif
 }
 
 static void app_clusters_attr_init(void)
@@ -738,6 +870,7 @@ static void app_clusters_attr_init(void)
 	dev_ctx.identify_attr.identify_time =
 		ZB_ZCL_IDENTIFY_IDENTIFY_TIME_DEFAULT_VALUE;
 
+	power_config_attrs_init();
 	metering_attrs_init();
 	poll_control_attrs_init();
 }
@@ -1038,6 +1171,95 @@ static void send_explicit_summation_report(void)
 	zb_zcl_send_report_attr_command(rep_info, bufid);
 }
 
+#if defined(CONFIG_APP_BATTERY_REPORTING)
+static int battery_read_mv(uint16_t *out_mv)
+{
+	int16_t raw = 0;
+	struct adc_sequence sequence = {
+		.buffer = &raw,
+		.buffer_size = sizeof(raw),
+	};
+
+	int err = adc_sequence_init_dt(&battery_adc, &sequence);
+
+	if (err != 0) {
+		return err;
+	}
+
+	err = adc_read(battery_adc.dev, &sequence);
+	if (err != 0) {
+		return err;
+	}
+
+	int32_t mv = raw;
+
+	err = adc_raw_to_millivolts_dt(&battery_adc, &mv);
+	if (err != 0) {
+		return err;
+	}
+
+	/* Single-ended conversions can land slightly negative on noise near
+	 * zero; clamp rather than wrapping through the unsigned cast.
+	 */
+	if (mv < 0) {
+		mv = 0;
+	}
+	if (mv > UINT16_MAX) {
+		mv = UINT16_MAX;
+	}
+	*out_mv = (uint16_t)mv;
+	return 0;
+}
+
+static void battery_sample(void)
+{
+	uint16_t mv = 0;
+	int err = battery_read_mv(&mv);
+
+	if (err != 0) {
+		/* Report "unknown" rather than a stale or zero reading —
+		 * a plausible-looking 0 % would trigger low-battery
+		 * automations in HA on what is actually a driver fault.
+		 */
+		LOG_WRN("battery SAADC read failed: %d — reporting unknown", err);
+		pending_battery_voltage = BATTERY_LEVEL_ZCL_UNKNOWN;
+		pending_battery_percentage = BATTERY_LEVEL_ZCL_UNKNOWN;
+		return;
+	}
+
+	uint8_t percent = battery_level_percent(mv,
+						CONFIG_APP_BATTERY_EMPTY_MV,
+						CONFIG_APP_BATTERY_FULL_MV);
+
+	pending_battery_voltage = battery_level_zcl_voltage(mv);
+	pending_battery_percentage = battery_level_zcl_percentage(percent);
+
+	LOG_INF("battery: %u mV -> %u%% (zcl volt=%u pct=%u)",
+		(unsigned)mv, (unsigned)percent,
+		(unsigned)pending_battery_voltage,
+		(unsigned)pending_battery_percentage);
+}
+
+static void battery_write_attributes(void)
+{
+	ZB_ZCL_SET_ATTRIBUTE(
+		APP_ENDPOINT,
+		ZB_ZCL_CLUSTER_ID_POWER_CONFIG,
+		ZB_ZCL_CLUSTER_SERVER_ROLE,
+		ZB_ZCL_ATTR_POWER_CONFIG_BATTERY_VOLTAGE_ID,
+		&pending_battery_voltage,
+		ZB_FALSE);
+
+	ZB_ZCL_SET_ATTRIBUTE(
+		APP_ENDPOINT,
+		ZB_ZCL_CLUSTER_ID_POWER_CONFIG,
+		ZB_ZCL_CLUSTER_SERVER_ROLE,
+		ZB_ZCL_ATTR_POWER_CONFIG_BATTERY_PERCENTAGE_REMAINING_ID,
+		&pending_battery_percentage,
+		ZB_FALSE);
+}
+#endif /* CONFIG_APP_BATTERY_REPORTING */
+
 static void publish_summation_cb(zb_uint8_t param)
 {
 	ARG_UNUSED(param);
@@ -1050,6 +1272,13 @@ static void publish_summation_and_report_cb(zb_uint8_t param)
 	ARG_UNUSED(param);
 
 	write_summation_attribute(pending_summation_total);
+#if defined(CONFIG_APP_BATTERY_REPORTING)
+	/* Battery attributes are written before the summation report goes
+	 * out so a coordinator that reads the endpoint in response to the
+	 * report sees the same tick's battery value, not the previous one.
+	 */
+	battery_write_attributes();
+#endif
 	send_explicit_summation_report();
 }
 
@@ -1128,6 +1357,16 @@ void zigbee_app_publish_summation_and_report(uint64_t pulse_total)
 	if (!endpoint_registered) {
 		return;
 	}
+
+#if defined(CONFIG_APP_BATTERY_REPORTING)
+	/* Blocking SAADC conversion, deliberately done here in the caller's
+	 * (work-queue) context rather than inside the ZBOSS callback — see
+	 * the battery_sample() comment. This is the design doc's "5-min RTC
+	 * wake to report + sample battery": one conversion per report tick,
+	 * on a wake the device was making anyway.
+	 */
+	battery_sample();
+#endif
 
 	pending_summation_total = pulse_total;
 	ZB_SCHEDULE_APP_CALLBACK(publish_summation_and_report_cb, 0);

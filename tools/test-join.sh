@@ -38,13 +38,13 @@
 # firmware cluster-list change can be regression-tested deliberately. Two
 # forms are accepted:
 #
-#   flat            EXPECT_CLUSTERS=genBasic,genIdentify,genPollCtrl,seMetering
+#   flat            EXPECT_CLUSTERS=genBasic,genIdentify,genPollCtrl,genPowerCfg,seMetering
 #                   Compares the union of input clusters, and additionally
 #                   requires that exactly ONE endpoint advertises them. The
 #                   firmware declares a single endpoint (APP_ENDPOINT 10,
 #                   ZBOSS_DECLARE_DEVICE_CTX_1_EP), so that holds today.
 #
-#   per-endpoint    EXPECT_CLUSTERS='10:genBasic,genIdentify,genPollCtrl,seMetering'
+#   per-endpoint    EXPECT_CLUSTERS='10:genBasic,genIdentify,genPollCtrl,genPowerCfg,seMetering'
 #                   Pins each cluster to its endpoint. Use this when the
 #                   firmware grows a second endpoint — the flat form cannot
 #                   tell "moved to another endpoint" from "still here", and

@@ -241,6 +241,59 @@ config APP_METERING_DEFAULT_IMP_PER_KWH
 
 endmenu
 
+menu "Battery reporting (issue #8)"
+
+config APP_BATTERY_REPORTING
+	bool "Sample battery voltage and publish the Power Config cluster"
+	default y
+	select ADC
+	help
+	  Samples the SoC-internal VDD rail via SAADC on each 5-minute
+	  report tick and publishes BatteryVoltage (0x0020) and
+	  BatteryPercentageRemaining (0x0021) on the Power Configuration
+	  cluster, which Z2M maps to the standard `battery` and `voltage`
+	  exposes.
+
+	  One conversion per report, not a sampling loop: the SAADC is
+	  enabled for the ~10 us conversion and disabled again by the
+	  driver's END IRQ. A peripheral left enabled requests PCLK16M and
+	  pins HFCLK at ~1.5 mA, which is what the pre-#7 10 Hz loop cost.
+
+	  Turning this off drops the cluster's values back to the 0xFF
+	  "unknown" sentinel; the cluster itself is always declared so the
+	  endpoint's simple descriptor doesn't change with a build option
+	  (that would strand paired coordinators).
+
+config APP_BATTERY_FULL_MV
+	int "Battery voltage treated as 100 %"
+	default 3000
+	range 500 5000
+	depends on APP_BATTERY_REPORTING
+	help
+	  2x AAA in series at ~1.5 V nominal each. Energizer Ultimate
+	  Lithium (L92) sits near 1.5-1.6 V under light load for most of
+	  its life, so 3000 mV is "as good as it gets" rather than the
+	  3.6 V open-circuit reading of a fresh pack.
+
+	  Must be greater than APP_BATTERY_EMPTY_MV; battery_level.c
+	  returns 0 % for an inverted range rather than dividing by zero.
+
+config APP_BATTERY_EMPTY_MV
+	int "Battery voltage treated as 0 %"
+	default 2000
+	range 500 5000
+	depends on APP_BATTERY_REPORTING
+	help
+	  2x 1.0 V, the usual lithium-AAA cutoff. The nRF52840 itself runs
+	  down to 1.7 V, so the pack is the limit, not the SoC.
+
+	  The map between these two endpoints is linear, which is a
+	  deliberate simplification — a lithium AAA discharge curve is flat
+	  enough that no simple curve is meaningfully better. Treat the
+	  percentage as a "replace soon" indicator, not a fuel gauge.
+
+endmenu
+
 # Zephyr's Kconfig — pulls in board / driver / kernel options. Keep at
 # the bottom so our project options land in the menu tree above the
 # standard Zephyr tree, not buried under it.

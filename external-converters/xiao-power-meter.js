@@ -83,12 +83,49 @@ export default {
             cluster: 'genPollCtrl',
             clusterType: 'input',
         }),
+        // Battery (Power Configuration 0x0001) — issue #8. The firmware
+        // samples the SoC VDD rail via SAADC on each 5-minute report tick
+        // and publishes BatteryVoltage (0x0020, 100 mV units) plus
+        // BatteryPercentageRemaining (0x0021, 0.5 % units).
+        //
+        // `voltage` defaults to FALSE in modernExtend's battery(), so it
+        // has to be asked for explicitly to get the `voltage` expose.
+        //
+        // No `dontDividePercentage`: the firmware sends spec-correct
+        // 0-200 half-percent units, which is exactly what Z2M's default
+        // divide-by-2 expects. Setting it would double the reading.
+        //
+        // Both attributes are declared reportable on-device (the stock
+        // ZBOSS descriptor for BatteryVoltage is read-only with no
+        // reporting bit, so zigbee_app.c hand-rolls it) — without that,
+        // voltage would only populate at interview and then sit stale.
+        m.battery({
+            percentage: true,
+            voltage: true,
+            percentageReporting: true,
+            voltageReporting: true,
+        }),
         m.electricityMeter({
             // The device's Metering cluster carries CurrentSummationDelivered
             // as the raw pulse count. Multiplier=1, Divisor=1000 are
             // written to the cluster's own attributes so Z2M / HA read
             // kWh natively; no need to override here.
             cluster: 'metering',
+            // No `power` expose. A pulse counter cannot produce an honest
+            // InstantaneousDemand: between two pulses it knows only "no
+            // pulse yet", so any W figure divides by an open-ended
+            // interval — reading 0 under light load and spiking when a
+            // pulse lands. In practice the sensor sat at 0 permanently,
+            // which is worse than absent because HA graphs it.
+            //
+            // The firmware no longer declares InstantaneousDemand,
+            // DemandFormatting or HistoricalConsumptionFormatting at all
+            // (all three are optional in SE 1.4). Leaving the expose
+            // declared here would leave a permanently-null sensor.
+            //
+            // Derive power in HA from the kWh series with a derivative
+            // helper, as the design doc specifies.
+            power: false,
             // No `endpointNames` — this device has a single endpoint
             // (10) so we want the plain `energy` / `power` properties,
             // not the `_10`-suffixed variants. With `endpointNames`

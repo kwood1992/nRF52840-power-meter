@@ -23,16 +23,26 @@
  *   - User button on XIAO D6 (P1.11), still driven by Zephyr GPIO for
  *     Zigbee join / factory-reset. Bench rig: Pi BCM17 → D6.
  *
+ * Re-added for #8:
+ *   - The `zephyr,user` ADC channel + `&adc` block, for battery voltage.
+ *     This is NOT the 10 Hz sample loop that was removed after #7 — it is
+ *     a single one-shot conversion on the 5-minute report tick. The
+ *     distinction matters for power: Zephyr's SAADC driver enables the
+ *     peripheral in adc_context_start_sampling() and disables it again in
+ *     the END IRQ (zephyr/drivers/adc/adc_nrfx_saadc.c), so SAADC.ENABLE
+ *     is non-zero only for the ~10 µs conversion. A peripheral left
+ *     enabled requests PCLK16M and pins HFCLK — that was the ~1.5 mA
+ *     anchor UARTE0/TWIM0 caused below, and it is exactly what a sampling
+ *     *loop* would reintroduce.
+ *
  * Removed (relative to pre-#7):
- *   - The `zephyr,user` ADC channel + `&adc` block — the 10 Hz SAADC sample
- *     loop is gone; battery voltage sensing (issue #8) will re-add SAADC on
- *     a different channel when that lands.
  *   - The `sw1` / `pulse_input` gpio-keys entry — D7 is no longer a Zephyr
  *     GPIO consumer; hw_pulse_counter drives it directly through nrfx
  *     GPIOTE. Pin assignment (P1.12) is documented in that C file.
  */
 
 #include <zephyr/dt-bindings/gpio/gpio.h>
+#include <zephyr/dt-bindings/adc/adc.h>
 
 / {
 	buttons {
@@ -47,6 +57,14 @@
 	aliases {
 		sw0 = &user_button;
 	};
+
+	/*
+	 * Battery-voltage sense channel (#8). Consumed via
+	 * ADC_DT_SPEC_GET(DT_PATH(zephyr_user)) in zigbee_app.c.
+	 */
+	zephyr,user {
+		io-channels = <&adc 7>;
+	};
 };
 
 &comp {
@@ -59,6 +77,40 @@
 
 &timer2 {
 	status = "okay";
+};
+
+/*
+ * SAADC for battery voltage (#8), per the design doc's "sample battery
+ * (SAADC on VDD)".
+ *
+ * Input is the SoC-internal VDD tap (NRF_SAADC_VDD), not an AIN pin:
+ *   - no pin to wire, no divider, no enable GPIO, so nothing to conflict
+ *     with the LPCOMP already sitting on AIN0;
+ *   - the XIAO's own battery divider (P0.31 + P0.14 enable) would burn
+ *     current through the divider whenever it is enabled and differs
+ *     between XIAO variants.
+ *
+ * Gain 1/6 against the 0.6 V internal reference gives a 3.6 V full scale,
+ * which covers a fresh 2x AAA pack (~3.2 V) and the 3.3 V bench rail with
+ * headroom. Channel index 7 is arbitrary — VDD is not pin-mapped.
+ *
+ * NOTE: this reads the rail the SoC is actually running from. On the
+ * bench that is the Pi 3V3 supply, so battery percentage will read 100 %
+ * until the board is on cells.
+ */
+&adc {
+	status = "okay";
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	channel@7 {
+		reg = <7>;
+		zephyr,gain = "ADC_GAIN_1_6";
+		zephyr,reference = "ADC_REF_INTERNAL";
+		zephyr,acquisition-time = <ADC_ACQ_TIME(ADC_ACQ_TIME_MICROSECONDS, 10)>;
+		zephyr,input-positive = <NRF_SAADC_VDD>;
+		zephyr,resolution = <12>;
+	};
 };
 
 /*

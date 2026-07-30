@@ -1,0 +1,62 @@
+rt-press (<1 s) join, long-press (>=3 s) factory reset[0m
+[00:00:00.014,221] [0m<inf> main: bench pulse input on D7 (P1.12) — falling-edge via GPIOTE→PPI→TIMER2 (no debounce)[0m
+[00:00:00.014,770] [0m<inf> main: boot-hold: sw0 held for 3000 ms at boot erases the NVS accumulator (4× LED confirm)[0m
+[00:00:00.015,655] [0m<inf> zigbee_app: battery reporting enabled: 2000 mV = 0%, 3000 mV = 100%[0m
+[00:00:00.016,204] [0m<inf> zigbee_app: Metering Divisor: imp/kWh=800 (from NVS)[0m
+[00:00:00.016,754] [0m<inf> zigbee_app: poll control: checkin=900 s, fast_poll_timeout=20 s, long_poll=60000 ms[0m
+[00:00:00.017,333] [0m<inf> zigbee_app_utils: Enabled sleepy end device behavior.[0m
+[00:00:00.017,761] [0m<inf> zigbee_app: rx-on-when-idle probe [post-configure-sleepy]: FALSE (joined=0)[0m
+[00:00:00.018,280] [0m<inf> zigbee_app: hfclk probe [post-configure-sleepy]: HFCLKSTAT=0x00010000 HFCLKRUN=0x00000000 xtal_running=0[0m
+[00:00:00.018,951] [0m<inf> zigbee_app: timer probe [post-configure-sleepy]: T0 MODE=0 BITMODE=0 PRESCALER=4 INTENSET=0x00000000 CC5_delta=0 running=0[0m
+[00:00:00.019,683] [0m<inf> zigbee_app: timer probe [post-configure-sleepy]: T1 MODE=0 BITMODE=3 PRESCALER=4 INTENSET=0x00000000 CC5_delta=0 running=0[0m
+[00:00:00.020,446] [0m<inf> zigbee_app: timer probe [post-configure-sleepy]: T2 MODE=1 BITMODE=3 PRESCALER=4 INTENSET=0x00000000 CC5_delta=0 running=0[0m
+[00:00:00.021,209] [0m<inf> zigbee_app: timer probe [post-configure-sleepy]: T3 MODE=0 BITMODE=0 PRESCALER=4 INTENSET=0x00000000 CC5_delta=0 running=0[0m
+[00:00:00.021,972] [0m<inf> zigbee_app: timer probe [post-configure-sleepy]: T4 MODE=0 BITMODE=0 PRESCALER=4 INTENSET=0x00000000 CC5_delta=0 running=0[0m
+[00:00:00.032,806] [0m<inf> zigbee_app_utils: Production configuration is not present or invalid (status: -1)[0m
+[00:00:00.033,599] [0m<inf> zigbee_app_utils: Zigbee stack initialized[0m
+[00:00:08.745,422] [0m<inf> zigbee_app_utils: Unimplemented signal (signal: 56, status: 0)[0m
+[00:00:08.747,009] [0m<inf> zigbee_app: device reboot: reattached to saved network[0m
+[00:00:08.747,436] [0m<inf> zigbee_app: rx-on-when-idle probe [post-reboot-reattach]: FALSE (joined=1)[0m
+[00:00:08.747,985] [0m<inf> zigbee_app: hfclk probe [post-reboot-reattach]: HFCLKSTAT=0x00010000 HFCLKRUN=0x00000000 xtal_running=0[0m
+[00:00:08.748,626] [0m<inf> zigbee_app: timer probe [post-reboot-reattach]: T0 MODE=0 BITMODE=3 PRESCALER=4 INTENSET=0x00000000 CC5_delta=0 running=0[0m
+[00:00:08.749,389] [0m<inf> zigbee_app: timer probe [post-reboot-reattach]: T1 MODE=0 BITMODE=3 PRESCALER=4 INTENSET=0x00000000 CC5_delta=0 running=0[0m
+[00:00:08.750,152] [0m<inf> zigbee_app: timer probe [post-reboot-reattach]: T2 MODE=1 BITMODE=3 PRESCALER=4 INTENSET=0x00000000 CC5_delta=0 running=0[0m
+[00:00:08.750,915] [0m<inf> zigbee_app: timer probe [post-reboot-reattach]: T3 MODE=0 BITMODE=0 PRESCALER=4 INTENSET=0x00000000 CC5_delta=0 running=0[0m
+[00:00:08.751,647] [0m<inf> zigbee_app: timer probe [post-reboot-reattach]: T[00:00:00.000,671] [0m<inf> ieee802154_nrf5: nRF5 802154 radio initialized[0m
+*** Booting nRF Connect SDK v2.9.2-4ab7b98fc76f ***
+*** Using Zephyr OS v3.7.99-aa34a5632971 ***
+[00:00:00.009,735] [0m<inf> fs_nvs: 8 Sectors of 4096 bytes[0m
+[00:00:00.010,101] [0m<inf> fs_nvs: alloc wra: 6, d60[0m
+[00:00:00.010,467] [0m<inf> fs_nvs: data wra: 6, 274[0m
+[00:00:00.010,986] [0m<inf> hw_pulse_counter: min-pulse-width: 2500 µs (from NVS)[0m
+[00:00:00.011,505] [0m<inf> hw_pulse_counter: hw pulse counter live: LPCOMP AIN0 refsel=VDD_3_8 HYST=on, bench D7 GPIOTE HITOLO+LOTOHI, TIMER2 counter mode, TIMER3 width filter threshold=2500 µs[0m
+[00:00:00.012,298] [0m<inf> main: restored accumulator_total=2803331 from NVS[0m
+[00:00:00.012,725] [0m<inf> main: XIAO Zigbee Energy Meter booted[0m
+[00:00:00.013,122] [0m<inf> main: pulse counting: phototransistor on A0 (AIN0) → LPCOMP → PPI → TIMER2, threshold=VDD*3/8 (HYST on)[0m
+[00:00:00.013,702] [0m<inf> main: user button on D6 (P1.11) — short-press (<1 s) join, long-press (>=3 s) factory reset[0m
+[00:00:00.014,251] [0m<inf> main: bench pulse input on D7 (P1.12) — falling-edge via GPIOTE→PPI→TIMER2 (no debounce)[0m
+[00:00:00.014,801] [0m<inf> main: boot-hold: sw0 held for 3000 ms at boot erases the NVS accumulator (4× LED confirm)[0m
+[00:00:00.015,686] [0m<inf> zigbee_app: battery reporting enabled: 2000 mV = 0%, 3000 mV = 100%[0m
+[00:00:00.016,235] [0m<inf> zigbee_app: Metering Divisor: imp/kWh=800 (from NVS)[0m
+[00:00:00.016,784] [0m<inf> zigbee_app: poll control: checkin=900 s, fast_poll_timeout=20 s, long_poll=60000 ms[0m
+[00:00:00.017,333] [0m<inf> zigbee_app_utils: Enabled sleepy end device behavior.[0m
+[00:00:00.017,761] [0m<inf> zigbee_app: rx-on-when-idle probe [post-configure-sleepy]: FALSE (joined=0)[0m
+[00:00:00.018,310] [0m<inf> zigbee_app: hfclk probe [post-configure-sleepy]: HFCLKSTAT=0x00010000 HFCLKRUN=0x00000000 xtal_running=0[0m
+[00:00:00.018,981] [0m<inf> zigbee_app: timer probe [post-configure-sleepy]: T0 MODE=0 BITMODE=0 PRESCALER=4 INTENSET=0x00000000 CC5_delta=0 running=0[0m
+[00:00:00.019,714] [0m<inf> zigbee_app: timer probe [post-configure-sleepy]: T1 MODE=0 BITMODE=3 PRESCALER=4 INTENSET=0x00000000 CC5_delta=0 running=0[0m
+[00:00:00.020,477] [0m<inf> zigbee_app: timer probe [post-configure-sleepy]: T2 MODE=1 BITMODE=3 PRESCALER=4 INTENSET=0x00000000 CC5_delta=0 running=0[0m
+[00:00:00.021,240] [0m<inf> zigbee_app: timer probe [post-configure-sleepy]: T3 MODE=0 BITMODE=0 PRESCALER=4 INTENSET=0x00000000 CC5_delta=0 running=0[0m
+[00:00:00.022,003] [0m<inf> zigbee_app: timer probe [post-configure-sleepy]: T4 MODE=0 BITMODE=0 PRESCALER=4 INTENSET=0x00000000 CC5_delta=0 running=0[0m
+[00:00:00.033,325] [0m<inf> zigbee_app_utils: Production configuration is not present or invalid (status: -1)[0m
+[00:00:00.034,149] [0m<inf> zigbee_app_utils: Zigbee stack initialized[0m
+[00:00:08.764,465] [0m<inf> zigbee_app_utils: Unimplemented signal (signal: 56, status: 0)[0m
+[00:00:08.766,052] [0m<inf> zigbee_app: device reboot: reattached to saved network[0m
+[00:00:08.766,479] [0m<inf> zigbee_app: rx-on-when-idle probe [post-reboot-reattach]: FALSE (joined=1)[0m
+[00:00:08.767,028] [0m<inf> zigbee_app: hfclk probe [post-reboot-reattach]: HFCLKSTAT=0x00010000 HFCLKRUN=0x00000000 xtal_running=0[0m
+[00:00:08.767,669] [0m<inf> zigbee_app: timer probe [post-reboot-reattach]: T0 MODE=0 BITMODE=3 PRESCALER=4 INTENSET=0x00000000 CC5_delta=0 running=0[0m
+[00:00:08.768,432] [0m<inf> zigbee_app: timer probe [post-reboot-reattach]: T1 MODE=0 BITMODE=3 PRESCALER=4 INTENSET=0x00000000 CC5_delta=0 running=0[0m
+[00:00:08.769,195] [0m<inf> zigbee_app: timer probe [post-reboot-reattach]: T2 MODE=1 BITMODE=3 PRESCALER=4 INTENSET=0x00000000 CC5_delta=0 running=0[0m
+[00:00:08.769,958] [0m<inf> zigbee_app: timer probe [post-reboot-reattach]: T3 MODE=0 BITMODE=0 PRESCALER=4 INTENSET=0x00000000 CC5_delta=0 running=0[0m
+[00:00:08.770,721] [0m<inf> zigbee_app: timer probe [post-reboot-reattach]: T4 MODE=0 BITMODE=0 PRESCALER=4 INTENSET=0x00000000 CC5_delta=0 running=0[0m
+[00:00:08.771,484] [0m<inf> zigbee_app: sleepy ED: long_poll=60000 ms (from attr), turbo_poll_window=30000 ms[0m
+[00:00:08.772,216] [0m<inf> zigbee_app_utils: Joined network successfully on reboot signal (Extended PAN ID: acfe3ed7bda4880e, PAN ID: 0x0bc8)[0m
