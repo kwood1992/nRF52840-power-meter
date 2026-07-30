@@ -223,7 +223,10 @@ entirely, e.g. during current measurement).
 A holder for spring-loaded pogo pins against the XIAO's five underside pads,
 so you don't have to solder or hand-hold probes. Prints in about an hour.
 
-**MakerWorld link**: *TODO — placeholder until upload*
+> **The model isn't published yet**, so this section is a parts list rather
+> than something you can print today. You don't need it: recovery works fine
+> with female Dupont wires held against the pads, or soldered on. The jig
+> only saves you a third hand if you're reflashing repeatedly.
 
 BOM:
 - 5 × pogo pin contacts, 0.68 mm tip, ~4 mm travel
