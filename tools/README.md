@@ -42,4 +42,10 @@ Don't build the USB-dev workflow with `rtt.conf` — it turns off CDC-ACM consol
 
 - `test-join.sh` — force-rejoin cycle: kick the device out via Z2M, watch it re-interview, PASS/FAIL on the resulting interview_state. See known caveat about stale `interview_state` from a prior join reporting SUCCESSFUL falsely.
 - `xiao-pulse.sh` / `xiao-pulse-burst.sh` — drive the D7 pulse-simulator GPIO on the Pi to feed synthetic pulses into the meter. Shell + `pinctrl`, so per-edge timing bottoms out at 5–15 ms.
-- `xiao-pulse-us.sh` — µs-precision variant for #59's min-pulse-width filter AC test (threshold ± 100 µs boundary discrimination). Uses `pigpio` wave-DMA on the Pi so sub-millisecond pulse widths are actually accurate. Requires `sudo apt install python3-pigpio` + `sudo systemctl enable --now pigpiod` on `rpi-xiao`.
+- `xiao-pulse-us.sh` — µs-precision variant for #59's min-pulse-width filter AC test (threshold ± 100 µs boundary discrimination). Writes BCM `GPSET0` / `GPCLR0` directly through `/dev/gpiomem` and busy-waits on `perf_counter_ns`, so sub-millisecond pulse widths are actually accurate. No daemon dependency — user in the `gpio` group runs it without sudo.
+
+## Current measurement
+
+- `ina219-sample.sh` / `ina219-sample.py` — one-shot INA219 CSV over the shunt in the Pi 3V3 → XIAO BAT path. See `docs/working/` for captured baselines.
+- `xiao-por.sh` — pulse the BCM 22 relay in the 3V3 rail to force a full POR (clears the CoreSight `CDBGPWRUP` latch that inflates baselines by ~1.5 mA otherwise).
+- `measure-power.sh <label> [s] [hz]` — orchestrator for #35: runs `ina219-sample.py` and `z2m-events.py` in parallel over SSH, produces `ina219.csv` + `events.csv` in `docs/working/measurements/<ts>-<label>/`, and renders `plot.png` with current vs. wall-clock annotated by Z2M events. Requires `pip3 install matplotlib` on the Mac. Pi-side scripts stream over SSH — no install on the Pi ahead of time.
