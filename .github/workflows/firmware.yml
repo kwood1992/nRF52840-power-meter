@@ -12,6 +12,11 @@ name: Firmware build
 # bash sources for non-interactive shells — so `west`, CMake, ninja and the
 # Zephyr SDK are already on PATH inside every `run:` step. Don't add manual
 # toolchain sourcing; it will fight the image.
+#
+# That mechanism is bash-only, and inside a container GitHub Actions
+# defaults `run:` steps to `sh -e {0}`, which ignores BASH_ENV entirely and
+# fails with "west: not found". The job-level `defaults.run.shell: bash`
+# below is what makes the image's own setup apply — don't drop it.
 
 on:
   pull_request:
@@ -38,6 +43,10 @@ jobs:
     container:
       image: ghcr.io/nrfconnect/sdk-nrf-toolchain:v2.9.2
       options: --user root
+
+    defaults:
+      run:
+        shell: bash
 
     strategy:
       fail-fast: false
