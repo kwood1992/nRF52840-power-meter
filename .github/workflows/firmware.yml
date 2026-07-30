@@ -162,59 +162,63 @@ jobs:
       # included overlay traded a loud failure (plain board won't compile) for
       # a potentially silent one (overlay not applied on Sense -> IMU regulator
       # boots ON at ~0.6-1.7 mA, straight into the sleep budget, with a clean
-      # build log). This asserts against the *generated* devicetree that the
-      # nodes really are disabled, so that failure mode cannot ship quietly.
+      # build log). This asserts that the nodes really are disabled, so that
+      # failure mode cannot ship quietly.
       #
-      # A node we cannot find is a FAILURE, not a pass — otherwise a renamed
-      # node would make this check vacuously green, which is the exact trap it
-      # exists to prevent.
+      # Asserted against devicetree_generated.h rather than zephyr.dts: that
+      # header is what the C code actually compiles against, so "is this node
+      # enabled" is unambiguous there. Zephyr defines <node>_STATUS_okay only
+      # for enabled nodes, so the check is the absence of that macro.
+      #
+      # A node whose macros are missing entirely is a FAILURE, not a pass —
+      # otherwise an upstream rename would make this vacuously green, which is
+      # the exact trap it exists to prevent.
       - name: Verify Sense-only nodes are disabled in the generated devicetree
         if: matrix.variant == 'sense'
         working-directory: nrf52840-power-meter/seeed-studio-zigbee-energy-meter
         run: |
           python3 - <<'EOF'
-          import re, sys
+          import glob, re, sys
 
-          # Node names as they appear in the flattened DTS, not the labels.
-          WANT = [
-              r'lsm6ds3tr-c@[0-9a-f]+',   # the IMU itself
-              r'lsm6ds3tr-c-en',          # its regulator (P1.08) — the current draw
-              r'msm261d3526hicpm-c-en',   # microphone regulator (P1.10)
-          ]
+          # Devicetree path tokens: leading /, then each path component, with
+          # every non-alphanumeric character folded to an underscore.
+          WANT = {
+              'DT_N_S_soc_S_i2c_40003000_S_lsm6ds3tr_c_6a':
+                  'LSM6DS3TR-C IMU (/soc/i2c@40003000/lsm6ds3tr-c@6a)',
+              'DT_N_S_lsm6ds3tr_c_en':
+                  'IMU regulator on P1.08 (/lsm6ds3tr-c-en) — the ~0.6-1.7 mA one',
+              'DT_N_S_msm261d3526hicpm_c_en':
+                  'microphone regulator on P1.10 (/msm261d3526hicpm-c-en)',
+          }
 
-          dts = open('build/zephyr/zephyr.dts').read()
+          matches = glob.glob('build/zephyr/include/generated/**/devicetree_generated.h',
+                              recursive=True)
+          if not matches:
+              sys.exit('FAIL: devicetree_generated.h not found under '
+                       'build/zephyr/include/generated/ — the build layout '
+                       'changed and this check needs updating.')
+          header = open(matches[0]).read()
+
           failures = []
-
-          for pattern in WANT:
-              m = re.search(r'^([ \t]*)(' + pattern + r')[ \t]*\{', dts, re.M)
-              if not m:
-                  failures.append(f'{pattern}: node not found in generated '
-                                  'devicetree at all — was it renamed upstream? '
-                                  'This check cannot silently pass.')
-                  continue
-
-              # Walk the node body by brace depth to avoid picking up a
-              # status from a sibling or child node.
-              i, depth = m.end() - 1, 0
-              for i in range(m.end() - 1, len(dts)):
-                  if dts[i] == '{':
-                      depth += 1
-                  elif dts[i] == '}':
-                      depth -= 1
-                      if depth == 0:
-                          break
-              body = dts[m.end():i]
-
-              status = re.search(r'status\s*=\s*"([a-z]+)"', body)
-              actual = status.group(1) if status else '(no status property)'
-              if actual != 'disabled':
+          for token, desc in WANT.items():
+              # Zephyr emits a block of macros per node, and almost every one
+              # is the token plus a suffix (_PATH, _STATUS_okay, _P_reg, ...).
+              # So this must be a substring test: anchoring the tail on a word
+              # boundary would never match, and would report every node as
+              # missing regardless of the truth.
+              if token not in header:
                   failures.append(
-                      f'{m.group(2)}: status is {actual!r}, expected '
-                      "'disabled'. overlays/sense.overlay was not applied — "
-                      'check the BOARD MATCHES "sense" guard in CMakeLists.txt.'
-                  )
+                      f'{desc}: no macros for {token} in devicetree_generated.h. '
+                      'The node path changed upstream, so this check can no '
+                      'longer prove anything — update WANT rather than deleting it.')
+              elif f'#define {token}_STATUS_okay' in header:
+                  failures.append(
+                      f'{desc}: still ENABLED. overlays/sense.overlay was not '
+                      'applied to this build — check the BOARD MATCHES "sense" '
+                      'guard in CMakeLists.txt. Left as-is this ships a board '
+                      'that quietly burns its sleep budget.')
               else:
-                  print(f'OK: {m.group(2)} is disabled')
+                  print(f'OK: disabled — {desc}')
 
           if failures:
               sys.exit('FAIL:\n  ' + '\n  '.join(failures))
