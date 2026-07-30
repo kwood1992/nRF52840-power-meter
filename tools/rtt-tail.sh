@@ -42,6 +42,15 @@
 #   ./tools/rtt-tail.sh                    # log lands in docs/working/rtt-<ts>-capture.log
 #   ./tools/rtt-tail.sh baseline-post-join # ...rtt-<ts>-baseline-post-join.log
 #   ./tools/rtt-tail.sh -                  # stream to stdout only, no log file
+#   ./tools/rtt-tail.sh --stop             # clear a leaked openocd and exit
+#
+# LEAKED-OPENOCD WARNING (issue #68):
+#   A leftover openocd holds the SWD bus, and flash-swd.sh starting a
+#   second one mid-erase corrupted the app slot on 2026-07-30. The
+#   cleanup trap below covers HUP as well as INT/TERM/EXIT precisely
+#   because closing the terminal is the common way this leaks — an
+#   untrapped fatal signal kills the shell without running EXIT.
+#   If one does survive, `--stop` clears it without needing sudo.
 
 set -euo pipefail
 
@@ -57,17 +66,6 @@ LABEL="${1:-capture}"
 RTT_RAM_ADDR="0x20000000"
 RTT_RAM_SIZE="0x40000"
 
-LOG_DIR="$REPO_ROOT/seeed-studio-zigbee-energy-meter/docs/working"
-if [ "$LABEL" = "-" ]; then
-    LOG_PATH=""
-    echo "streaming RTT to stdout only (no log file)" >&2
-else
-    TS="$(date +%Y-%m-%d-%H%M%S)"
-    LOG_PATH="$LOG_DIR/rtt-$TS-$LABEL.log"
-    mkdir -p "$LOG_DIR"
-    echo "logging RTT stream to $LOG_PATH" >&2
-fi
-
 REMOTE_LOG="/tmp/openocd-rtt.log"
 SSH_TUNNEL_PID=""
 NC_PID=""
@@ -82,9 +80,51 @@ pi_stop_openocd() {
         >/dev/null 2>&1 || true
 }
 
+# True when something is already listening on openocd's telnet control
+# port — i.e. an openocd (probably a leaked one) holds the SWD bus.
+pi_openocd_running() {
+    ssh "$PI_ALIAS" \
+        "nc -z 127.0.0.1 $OPENOCD_TELNET_PORT >/dev/null 2>&1" >/dev/null 2>&1
+}
+
+# `--stop` exists so a leaked instance can be cleared without sudo:
+# passwordless sudo on the Pi is scoped to `openocd` only, so
+# `sudo pkill -f openocd` prompts for a password and can't be scripted.
+# openocd's own telnet `shutdown` needs no elevation at all.
+if [ "${1:-}" = "--stop" ]; then
+    if pi_openocd_running; then
+        echo "-> openocd is running on $PI_ALIAS; sending shutdown..."
+        pi_stop_openocd
+        sleep 1
+        if pi_openocd_running; then
+            echo "error: openocd still listening on port $OPENOCD_TELNET_PORT." >&2
+            echo "  Its telnet port may be wedged. Clear it interactively with:" >&2
+            echo "    ssh $PI_ALIAS 'sudo pkill -f openocd'" >&2
+            exit 1
+        fi
+        echo "openocd stopped — SWD bus released."
+    else
+        echo "no openocd running on $PI_ALIAS — nothing to stop."
+    fi
+    exit 0
+fi
+
+# Log-file setup happens AFTER the --stop early-exit, so `--stop` doesn't
+# create a stray capture log named after the flag.
+LOG_DIR="$REPO_ROOT/seeed-studio-zigbee-energy-meter/docs/working"
+if [ "$LABEL" = "-" ]; then
+    LOG_PATH=""
+    echo "streaming RTT to stdout only (no log file)" >&2
+else
+    TS="$(date +%Y-%m-%d-%H%M%S)"
+    LOG_PATH="$LOG_DIR/rtt-$TS-$LABEL.log"
+    mkdir -p "$LOG_DIR"
+    echo "logging RTT stream to $LOG_PATH" >&2
+fi
+
 cleanup() {
     local rc=$?
-    trap - EXIT INT TERM
+    trap - EXIT INT TERM HUP
     echo >&2
     echo "-> tearing down rtt-tail session..." >&2
     if [ -n "$NC_PID" ] && kill -0 "$NC_PID" 2>/dev/null; then
@@ -97,7 +137,11 @@ cleanup() {
     pi_stop_openocd
     exit "$rc"
 }
-trap cleanup EXIT INT TERM
+# HUP matters as much as INT/TERM here: closing the terminal or dropping
+# the SSH session is the usual way this script's openocd got leaked
+# (#68). Without HUP trapped, the shell dies on an untrapped fatal signal
+# and the EXIT trap never fires.
+trap cleanup EXIT INT TERM HUP
 
 echo "-> stopping any stale openocd on $PI_ALIAS..."
 pi_stop_openocd

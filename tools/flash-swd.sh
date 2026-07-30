@@ -93,6 +93,37 @@ if [ "$START_ADDR_INT" -lt "$MIN_APP_ADDR" ]; then
 fi
 # ---- end address-safety check ---------------------------------------------
 
+# ---- competing-openocd pre-flight (issue #68) ------------------------------
+# A second openocd on the same SWD wires is not a benign "port in use"
+# problem. On 2026-07-30 a leaked rtt-tail.sh openocd was still holding the
+# bus; this script started its own, the two fought over SWCLK/SWDIO, and the
+# erase died partway through:
+#
+#   Error: Wrong parity detected
+#   Error: Error waiting NVMC_READY
+#   Error: failed erasing sectors 39 to 121
+#
+# That leaves the app slot PARTIALLY ERASED — worse than not flashing at all,
+# because the device comes back running nothing. openocd's only hint is a
+# "couldn't bind gdb to socket on port 3333" line scrolled off the top.
+#
+# So check before we touch flash, and refuse rather than guess. Detection is
+# via the telnet control port, which is a live openocd's tell.
+OPENOCD_TELNET_PORT=4444
+if ssh "$PI_ALIAS" "nc -z 127.0.0.1 $OPENOCD_TELNET_PORT >/dev/null 2>&1" >/dev/null 2>&1; then
+    echo "error: another openocd already holds the SWD bus on $PI_ALIAS." >&2
+    echo "  Flashing now risks a partially-erased app slot (see issue #68)." >&2
+    echo "" >&2
+    echo "  Almost always a leaked tools/rtt-tail.sh. Clear it with:" >&2
+    echo "    ./tools/rtt-tail.sh --stop" >&2
+    echo "" >&2
+    echo "  If that reports the port still listening, it's wedged — then:" >&2
+    echo "    ssh $PI_ALIAS 'sudo pkill -f openocd'" >&2
+    echo "  (needs your password; passwordless sudo there is openocd-only)" >&2
+    exit 1
+fi
+# ---- end pre-flight -------------------------------------------------------
+
 echo "flashing $HEX ($(du -h "$HEX" | cut -f1)) via SWD on $PI_ALIAS"
 
 echo "-> copying hex to $PI_ALIAS:$PI_TMP_HEX..."

@@ -4,20 +4,24 @@
 # Sequence:
 #   1. Flash the given UF2 (defaults to the standard build output)
 #   2. Wait for boot
-#   3. Enable permit_join in Z2M FIRST — needs to be on before the
+#   3. Remove Z2M's cached device entry. Z2M keys interview_state,
+#      configured_reportings and the endpoint CLUSTER LIST by IEEE, and a
+#      device-side factory reset invalidates none of it — so without this
+#      the test can pass off the previous join's cache (#20, #69) and can
+#      report a stale cluster list as current (#62). Removing first makes
+#      the start state provable and forces a simple-descriptor re-read.
+#   4. Enable permit_join in Z2M — needs to be on before the
 #      device starts scanning, otherwise the coordinator rejects the
 #      association and no device_joined event fires.
-#   4. Factory-reset via long-press. The reset flow is:
+#   5. Factory-reset via long-press. The reset flow is:
 #        * ZBOSS emits LEAVE, wipes zboss_nvram, calls sys_reset
 #        * CPU reboots, ZBOSS re-inits with empty NVRAM
 #        * FIRST_START signal fires
 #        * light_switch-pattern default handler auto-steers
 #      That whole cycle takes ~15-25 s. No button-press to trigger
 #      steering needed — the default handler already does it.
-#   5. Watch zigbee2mqtt/bridge/event for our device's IEEE up to 90 s
-#      → success on device_interview_successful
-#      → failure on device_interview_failed OR timeout
-#   6. Disable permit_join, print outcome, exit
+#   6. Poll for interview completion up to 90 s, report the advertised
+#      cluster list, optionally assert it, disable permit_join, exit.
 #
 # Requires (all documented in docs/swd-recovery-jig.md):
 #   - Pi SWD flash rig (tools/flash.sh) OR serial-DFU fallback (tools/flash-serial.sh)
@@ -27,6 +31,11 @@
 # Usage:
 #   ./tools/test-join.sh                  # test the standard build
 #   ./tools/test-join.sh path/to/other.uf2
+#
+# Env EXPECT_CLUSTERS asserts the device's advertised input clusters, so a
+# firmware cluster-list change can be regression-tested deliberately:
+#   EXPECT_CLUSTERS=genBasic,genIdentify,genPollCtrl,seMetering ./tools/test-join.sh
+# Order doesn't matter (both sides are sorted); exits 4 on mismatch.
 #
 # Flash strategy: chained fallback in the order flash.sh (USB MSC drop) →
 # flash-serial.sh (USB CDC-ACM DFU) → flash-swd.sh (SWD via Pi OpenOCD).
@@ -78,7 +87,7 @@ log "UF2:           $UF2"
 # -- 1. flash --
 # Chained fallback governed by FLASH_METHOD (validated above). All non-
 # UF2 paths need the sibling .hex — resolve it once here.
-log "1/5 flashing (method=$FLASH_METHOD)..."
+log "1/6 flashing (method=$FLASH_METHOD)..."
 HEX="${UF2%.uf2}.hex"
 
 flash_via_usb_msc() {
@@ -126,19 +135,40 @@ fi
 log "     $flashed succeeded"
 
 # -- 2. wait for boot --
-log "2/5 waiting 8 s for boot..."
+log "2/6 waiting 8 s for boot..."
 sleep 8
 
-# -- 3. permit_join ON *before* the factory reset --
-log "3/5 permit_join true (must precede the reset — coordinator needs to accept the auto-steer)..."
+# -- 3. drop Z2M's cached entry so the pass/fail signal is trustworthy --
+#
+# Without this the test cannot tell a fresh interview from Z2M's cache
+# (#69, and #20 before it). Z2M keeps interview_state, configured_reportings
+# AND the endpoint's cluster list keyed by IEEE, and a device-side factory
+# reset does not invalidate any of it — so the old SUCCESSFUL lingers and
+# the poll below would read it as a pass. Worse, distinguishing "stale
+# SUCCESSFUL" from "fresh SUCCESSFUL" by state alone is ambiguous, because
+# right after the long-press the cache legitimately still says SUCCESSFUL.
+#
+# Removing first makes the start state provable: the first poll must read
+# NOT_JOINED, so a later SUCCESSFUL can only be this cycle's interview. It
+# also forces Z2M to re-read the simple descriptor, which is the only way
+# a cluster-list change shows up (the stale-cluster-list trap from #62).
+#
+# Cost: the device's Z2M/HA history resets on every run. Acceptable for a
+# test that already factory-resets the device.
+log "3/6 removing Z2M's cached device entry (forces a genuine re-interview)..."
+ssh "$PI_ALIAS" "~/z2m-cli remove $XIAO_IEEE" >/dev/null 2>&1 || true
+sleep 5
+
+# -- 4. permit_join ON *before* the factory reset --
+log "4/6 permit_join true (must precede the reset — coordinator needs to accept the auto-steer)..."
 ssh "$PI_ALIAS" '~/z2m-cli permit-join true' >/dev/null
 
-# -- 4. factory reset (device reboots → FIRST_START → default handler auto-steers) --
-log "4/5 factory reset (long-press ~4 s)..."
+# -- 5. factory reset (device reboots → FIRST_START → default handler auto-steers) --
+log "5/6 factory reset (long-press ~4 s)..."
 ssh "$PI_ALIAS" '~/xiao-long-press.sh'
 
-# -- 5. watch for the interview to complete --
-log "5/5 watching zigbee2mqtt/bridge/event (timeout ${INTERVIEW_TIMEOUT_S}s)..."
+# -- 6. watch for the interview to complete --
+log "6/6 watching zigbee2mqtt/bridge/event (timeout ${INTERVIEW_TIMEOUT_S}s)..."
 # Poll bridge/devices for our device's interview_state. Z2M's
 # bridge/event API in 2.x doesn't emit a specific
 # "device_interview_successful" event, but the interview_state field
@@ -146,6 +176,12 @@ log "5/5 watching zigbee2mqtt/bridge/event (timeout ${INTERVIEW_TIMEOUT_S}s)..."
 # terminates, so we poll for that.
 OUTCOME=""
 JOINED_LOGGED=0
+# Belt-and-braces after the step-3 remove: with the cache dropped, the
+# first poll MUST read NOT_JOINED, so this can only fire if the remove
+# silently failed. Kept as an assertion rather than dropped, because a
+# false PASS here is what poisons every downstream bench result (#69).
+SAW_PREINTERVIEW=0
+CLUSTERS=""
 for i in $(seq 1 $((INTERVIEW_TIMEOUT_S / 3))); do
     STATE=$(ssh "$PI_ALIAS" 'timeout 3 ~/z2m-cli sub bridge/devices -C 1 2>/dev/null' \
         | python3 -c "
@@ -159,22 +195,38 @@ for d in data:
     if d.get('ieee_address', '').lower() == target:
         state = d.get('interview_state') or 'UNKNOWN'
         completed = d.get('interview_completed', False)
-        print(f'{state}|{completed}')
+        # Advertised input clusters, so a stale simple descriptor is
+        # visible in the output instead of silently accepted (#69).
+        clusters = []
+        for ep in (d.get('endpoints') or {}).values():
+            clusters += ((ep.get('clusters') or {}).get('input') or [])
+        print(f'{state}|{completed}|{\",\".join(sorted(set(clusters)))}')
         break
 else:
     print('NOT_JOINED')
 " 2>/dev/null || echo "QUERY_ERROR")
     STATE_NAME=$(echo "$STATE" | cut -d'|' -f1)
+    CLUSTERS=$(echo "$STATE" | cut -d'|' -f3)
 
     if [ "$STATE_NAME" = SUCCESSFUL ]; then
-        OUTCOME=SUCCESS
+        if [ $SAW_PREINTERVIEW -eq 0 ]; then
+            OUTCOME=STALE
+        else
+            OUTCOME=SUCCESS
+        fi
         break
     elif [ "$STATE_NAME" = FAILED ]; then
         OUTCOME=FAILED
         break
-    elif [ "$STATE_NAME" != NOT_JOINED ] && [ $JOINED_LOGGED -eq 0 ]; then
-        log "   device in Z2M (state=$STATE_NAME) — waiting for interview to complete"
-        JOINED_LOGGED=1
+    else
+        # NOT_JOINED, in-progress, NO_DATA, QUERY_ERROR — all mean "not
+        # yet interviewed on this cycle", which is what distinguishes a
+        # real interview from a stale cache read.
+        SAW_PREINTERVIEW=1
+        if [ "$STATE_NAME" != NOT_JOINED ] && [ $JOINED_LOGGED -eq 0 ]; then
+            log "   device in Z2M (state=$STATE_NAME) — waiting for interview to complete"
+            JOINED_LOGGED=1
+        fi
     fi
     sleep 3
 done
@@ -187,11 +239,42 @@ if [ -z "$OUTCOME" ]; then
 fi
 
 log "final interview_state: $STATE"
+if [ -n "$CLUSTERS" ]; then
+    log "advertised input clusters: $CLUSTERS"
+fi
+
+# Optional interface assertion. Set EXPECT_CLUSTERS to a comma-separated
+# list to regression-test a firmware cluster-list change — Z2M serves the
+# cluster list from its own database and will happily keep reporting the
+# OLD one after a device-side factory reset (#69).
+#   EXPECT_CLUSTERS=genBasic,genIdentify,genPollCtrl,seMetering ./tools/test-join.sh
+if [ "$OUTCOME" = SUCCESS ] && [ -n "${EXPECT_CLUSTERS:-}" ]; then
+    WANT=$(echo "$EXPECT_CLUSTERS" | tr ',' '\n' | sort -u | paste -sd, -)
+    GOT=$(echo "$CLUSTERS" | tr ',' '\n' | sort -u | paste -sd, -)
+    if [ "$WANT" != "$GOT" ]; then
+        log "FAIL — cluster list mismatch"
+        log "  expected: $WANT"
+        log "  actual:   $GOT"
+        log "  If you just changed the firmware's cluster list, Z2M is serving"
+        log "  cached endpoint data. Remove and re-pair:"
+        log "    ssh $PI_ALIAS '~/z2m-cli remove $XIAO_IEEE'"
+        exit 4
+    fi
+    log "cluster list matches EXPECT_CLUSTERS"
+fi
 
 case "$OUTCOME" in
     SUCCESS)
         log "PASS — join + interview completed"
         exit 0
+        ;;
+    STALE)
+        log "FAIL — SUCCESSFUL on the very first poll, despite the step-3"
+        log "       cache removal. That means the remove didn't take, so this"
+        log "       reading is Z2M's cache from a PREVIOUS join rather than"
+        log "       the interview we just triggered. Check the remove by hand:"
+        log "         ssh $PI_ALIAS '~/z2m-cli remove $XIAO_IEEE'"
+        exit 3
         ;;
     FAILED)
         log "FAIL — Z2M reported interview failure"
