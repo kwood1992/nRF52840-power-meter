@@ -59,9 +59,10 @@ Prefer not to build the firmware yourself? Every push produces a UF2
 artifact — grab it from the
 [Actions tab](https://github.com/kwood1992/nRF52840-power-meter/actions/workflows/firmware.yml).
 
-> **Get the Sense variant of the board.** The design doc's BOM says plain,
-> but the firmware only builds for `xiao_ble/nrf52840/sense` today
-> ([#75](https://github.com/kwood1992/nRF52840-power-meter/issues/75)).
+> **Either board variant compiles, but prefer the Sense.** Both
+> `xiao_ble/nrf52840/sense` and plain `xiao_ble/nrf52840` build in CI. Every
+> bench measurement here was taken on a Sense, though, and no plain board has
+> ever been flashed — so the Sense is the known-good path.
 
 > **Two things that will cost you an evening if you skip them.**
 >
@@ -94,6 +95,7 @@ seeed-studio-zigbee-energy-meter/   Zephyr application
   src/                              firmware sources
   tests/                            host-run unit tests (no toolchain needed)
   docs/                             design doc + working notes
+  overlays/                         board-variant devicetree fragments
   *.conf                            build overlays (dev, rtt, diagnostics)
 external-converters/                Zigbee2MQTT external converter
 tools/                              bench scripts (flash, pulse, current, RTT)

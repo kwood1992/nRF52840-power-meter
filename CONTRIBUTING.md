@@ -147,10 +147,10 @@ Point at the `seeed-studio-zigbee-energy-meter/` folder (the one containing
 - On the application, click *Add Build Configuration*
 - **Board target**: `xiao_ble/nrf52840/sense` — the Sense variant,
   identifiable by the onboard IMU and PDM microphone on the top side, and by
-  the `XIAO-SENSE` volume that mounts in bootloader mode. This is currently
-  the **only** target that builds; the plain `xiao_ble/nrf52840` fails at
-  devicetree because `app.overlay` references Sense-only IMU node labels
-  ([#75](https://github.com/kwood1992/nRF52840-power-meter/issues/75)).
+  the `XIAO-SENSE` volume that mounts in bootloader mode. The plain
+  `xiao_ble/nrf52840` also builds and is covered by CI, but has never been
+  run on hardware — use the Sense unless you're deliberately testing the
+  plain board.
 - **⚠️ Uncheck "Use sysbuild"** — see the Build Gotchas section below.
   Leaving this on will produce firmware that flashes cleanly but silently
   refuses to boot.
@@ -227,8 +227,28 @@ rather than plain `xiao_ble`), Zephyr looks for `boards/xiao_ble_nrf52840_sense.
 at the project root is also sometimes skipped depending on NCS version and
 build config. To avoid guessing, `CMakeLists.txt` in this project **force-loads
 `app.overlay`** via `EXTRA_DTC_OVERLAY_FILE` before `find_package(Zephyr)`.
-Keep new project-wide DT additions in `app.overlay`; if you need
-variant-specific tweaks, add them under `boards/<qualified_name>.overlay`.
+
+Keep project-wide DT additions in `app.overlay`. For **variant-specific**
+tweaks, do *not* reach for `boards/<qualified_name>.overlay` — that is the
+auto-discovery this project doesn't trust. Follow the pattern already set by
+`overlays/sense.overlay`: put the fragment under `overlays/`, where discovery
+will never find it, and append it explicitly from `CMakeLists.txt` guarded on
+`BOARD`:
+
+```cmake
+if(BOARD MATCHES "sense")
+	list(APPEND EXTRA_DTC_OVERLAY_FILE "${CMAKE_CURRENT_LIST_DIR}/overlays/sense.overlay")
+endif()
+```
+
+`BOARD` is a cache variable set from the command line by `west build -b`, so
+it is available before `find_package(Zephyr)`.
+
+**Anything that saves power belongs behind a CI assertion.** A skipped
+overlay fails silently — the build is clean and the current draw doubles. The
+`firmware-build` job checks `devicetree_generated.h` to confirm the Sense IMU
+nodes are actually disabled; add a similar assertion for any new fragment
+that turns hardware off.
 
 **Symptom if this breaks**: the C compiler complains about undeclared
 `__device_dts_ord_DT_N_S_zephyr_user_...` or similar generated macros —
