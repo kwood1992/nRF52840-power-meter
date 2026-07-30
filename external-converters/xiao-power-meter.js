@@ -63,6 +63,26 @@ export default {
     vendor: 'kwood1992',
     description: 'XIAO nRF52840 Zigbee pulse-counting power meter (issue #5)',
     extend: [
+        // Poll Control (0x0020) binding — issue #62 option B.
+        //
+        // This is what makes an *unattended* write work. Two separate
+        // herdsman behaviours depend on the device exposing genPollCtrl:
+        //
+        //  1. pendingRequestTimeout stops being 0. herdsman defaults a
+        //     genPollCtrl device to one check-in interval (1 day until it
+        //     has read ours), so a write is QUEUED instead of failing at
+        //     the 10 s ZCL deadline.
+        //  2. On receiving our Check-In, herdsman answers with
+        //     startFastPolling=1 whenever it has pending requests for us,
+        //     then drains them (device.ts, `hasPendingRequests()`).
+        //
+        // The binding is required for (2): a Poll Control server sends
+        // Check-In to the clients in its binding table, so without this
+        // the device checks in to nobody and the queue never drains.
+        m.bindCluster({
+            cluster: 'genPollCtrl',
+            clusterType: 'input',
+        }),
         m.electricityMeter({
             // The device's Metering cluster carries CurrentSummationDelivered
             // as the raw pulse count. Multiplier=1, Divisor=1000 are
@@ -96,12 +116,11 @@ export default {
         // are additionally rejected + rolled back on-device, but
         // range-clamping in the UI is the friendlier first line.
         //
-        // Sleepy-ED gotcha: this device polls its parent every 60 s
-        // in steady state and Z2M's write deadline is 10 s. Writes
-        // land only inside the ~30 s post-reboot turbo-poll window;
-        // otherwise they time out at the herdsman layer. Documented
-        // in the README's "Sleepy-ED timing gotcha" section — a
-        // wake-on-write path is future work (see #50 follow-ups).
+        // Sleepy-ED write timing: handled by the Poll Control cluster
+        // (see bindCluster above). herdsman queues the write rather than
+        // failing it at the 10 s deadline, and delivers it on the next
+        // contact from the device — ~5 min in practice, via the metering
+        // report. A short button press makes it immediate.
         m.numeric({
             name: 'imp_per_kwh',
             cluster: 'seMetering',
@@ -109,9 +128,9 @@ export default {
             description:
                 'Meter pulse constant (imp/kWh). Match this to the value '
                 + "printed on your meter's faceplate. Persists in on-device "
-                + 'NVS across reboots. Requires the device to be awake — '
-                + 'short-press the button before writing if it has been '
-                + 'idle >30 s.',
+                + 'NVS across reboots. The device is a sleepy end-device, so '
+                + 'the write is queued and applied within ~5 minutes; '
+                + 'short-press the button to apply it immediately.',
             valueMin: 100,
             valueMax: 10000,
             valueStep: 1,
@@ -125,8 +144,8 @@ export default {
         // torch-driver PWM out of the count. Default 1000 µs; range
         // 100-10000 µs enforced by the firmware's calibration predicate.
         //
-        // Sleepy-ED write timing: same gotcha as imp_per_kwh — press
-        // the button first if the device has been idle.
+        // Sleepy-ED write timing: same as imp_per_kwh — queued by
+        // herdsman, delivered on next contact.
         m.numeric({
             name: 'min_pulse_width_us',
             cluster: 'seMetering',
@@ -138,7 +157,9 @@ export default {
                 + 'increments — protects against ambient flicker and torch '
                 + 'PWM. Default 1000 µs; typical residential meter LEDs '
                 + 'emit pulses in the 20–100 ms range so any legal value '
-                + "can't miss real imp events. Persists in NVS.",
+                + "can't miss real imp events. Persists in NVS. Queued and "
+                + 'applied within ~5 minutes; short-press the button to '
+                + 'apply immediately.',
             valueMin: 100,
             valueMax: 10000,
             valueStep: 1,

@@ -137,9 +137,23 @@ the ZHC precheck.
 ### Sleepy-ED timing gotcha
 
 The device is a sleepy end-device polling its parent every 60 s in
-steady state, while Z2M gives up on a write after 10 s. So any write
-attempted from the UI in steady state times out with a herdsman
-`Timeout after 10000ms` error. Wake the device first:
+steady state, while Z2M gives up on a write after 10 s.
+
+Since the Poll Control (0x0020) cluster shipped, **you usually don't
+have to do anything about this.** The device advertises `genPollCtrl`,
+which makes zigbee-herdsman *queue* a write instead of failing it at the
+10 s deadline, then deliver it the next time the device makes contact.
+In practice that's the next 5-minute metering report, so an unattended
+write — including one from a Home Assistant automation, with nobody at
+the device — lands within about 5 minutes.
+
+Two knobs govern the fallback path: `CONFIG_APP_ZIGBEE_CHECKIN_INTERVAL_S`
+(default 900 s) is the backstop for when reporting is idle, and
+`CONFIG_APP_ZIGBEE_FAST_POLL_TIMEOUT_S` (default 20 s) is how long the
+device fast-polls once Z2M says it has something queued.
+
+If you want a write to land *now* rather than within a few minutes, wake
+the device first:
 
 1. **Short-press the device button.** The white LED acks the press and
    a ~30 s turbo-poll window opens (~100 ms poll cadence).
@@ -159,10 +173,11 @@ Re-flashing over SWD or double-tap-resetting the board also opens a
 window (via the post-join path), but a short press is the cheap option
 since it doesn't disturb the join.
 
-Still unsolved: a write with **no one at the device**. Home Assistant
-automations can't press the button, so scripted calibration remains out
-of reach — that's the Poll Control (0x0020) cluster option in
-[#62](https://github.com/kwood1992/nRF52840-power-meter/issues/62).
+> **If you change the firmware's cluster list, remove and re-pair the
+> device in Z2M.** Z2M serves endpoint/cluster data from its own
+> database, and a device-side factory reset does *not* make it re-read
+> the simple descriptor — it will keep reporting the old cluster list
+> and report a successful interview while doing so.
 
 ### Changing Divisor mid-life
 

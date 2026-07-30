@@ -116,6 +116,25 @@ struct zb_device_ctx {
 	 * 0xF000 is inside the manufacturer-specific range.
 	 */
 	zb_uint16_t metering_min_pulse_width_us;
+
+	/*
+	 * Poll Control (0x0020) server attributes — issue #62 option B.
+	 * All intervals are in QUARTER-SECONDS, per the ZCL spec; the
+	 * app's own Kconfig values are in seconds / ms, so every
+	 * assignment below goes through an explicit conversion.
+	 *
+	 * The *_min / *_max attributes are the floor/ceiling a client is
+	 * allowed to write. Leaving them at 0 (the ZCL defaults) means
+	 * "no client-imposed limit", which is what we want — we are not
+	 * trying to stop a coordinator from tuning our poll cadence.
+	 */
+	zb_uint32_t poll_checkin_interval;
+	zb_uint32_t poll_long_poll_interval;
+	zb_uint16_t poll_short_poll_interval;
+	zb_uint16_t poll_fast_poll_timeout;
+	zb_uint32_t poll_checkin_interval_min;
+	zb_uint32_t poll_long_poll_interval_min;
+	zb_uint16_t poll_fast_poll_timeout_max;
 };
 
 static struct zb_device_ctx dev_ctx;
@@ -199,11 +218,38 @@ ZB_ZCL_START_DECLARE_ATTRIB_LIST_CLUSTER_REVISION(metering_attr_list,
 		&dev_ctx.metering_min_pulse_width_us)
 ZB_ZCL_FINISH_DECLARE_ATTRIB_LIST;
 
+/*
+ * Poll Control server (#62 option B). Declaring this cluster is what
+ * flips zigbee-herdsman from "fail the write after 10 s" to "queue the
+ * write and flush it on the device's next check-in" — herdsman defaults
+ * a genPollCtrl device's pendingRequestTimeout to one check-in interval
+ * (1 day if it hasn't read ours yet), then answers our Check-In with
+ * startFastPolling=1 whenever it has something pending for us.
+ *
+ * ZBOSS starts the check-in process on its own during ZCL periodic-
+ * activity init when a Poll Control SERVER cluster is present, so there
+ * is no explicit zb_zcl_poll_control_start() call here.
+ *
+ * The macro also declares a hidden `srv_cfg_data_ctx_<name>` holding the
+ * bound client's addr/endpoint (ADDR_DATA attribute) — that's why the
+ * attribute list is declared here rather than being hand-rolled.
+ */
+ZB_ZCL_DECLARE_POLL_CONTROL_ATTRIB_LIST(
+	poll_control_attr_list,
+	&dev_ctx.poll_checkin_interval,
+	&dev_ctx.poll_long_poll_interval,
+	&dev_ctx.poll_short_poll_interval,
+	&dev_ctx.poll_fast_poll_timeout,
+	&dev_ctx.poll_checkin_interval_min,
+	&dev_ctx.poll_long_poll_interval_min,
+	&dev_ctx.poll_fast_poll_timeout_max);
+
 ZB_DECLARE_METER_CLUSTER_LIST(
 	app_clusters,
 	basic_attr_list,
 	identify_attr_list,
-	metering_attr_list);
+	metering_attr_list,
+	poll_control_attr_list);
 
 ZB_DECLARE_METER_EP(
 	app_ep,
@@ -256,12 +302,58 @@ static void apply_sleepy_poll_intervals_if_joined(zb_ret_t status)
 	if (!IS_ENABLED(CONFIG_APP_ZIGBEE_SLEEPY_ED) || status != RET_OK) {
 		return;
 	}
-	zb_zdo_pim_set_long_poll_interval(
-		CONFIG_APP_ZIGBEE_LONG_POLL_INTERVAL_MS);
+
+	/*
+	 * Push the Poll Control attributes into the PIM.
+	 *
+	 * ncs-zigbee's docs/known_issues.rst (KRKNWK, "Apply Poll Control
+	 * values loaded from NVRAM to the PIM") documents that ZBOSS does
+	 * NOT do this itself: the attribute values survive a reboot in
+	 * NVRAM, but nothing pushes them at the Poll Interval Manager, so
+	 * without this the device silently reverts to the ZBOSS default
+	 * 5 s long poll after a re-attach. The workaround in that doc is
+	 * exactly this block, hoisted here so it covers both the fresh-join
+	 * (STEERING) and re-attach (DEVICE_REBOOT) call sites.
+	 *
+	 * Reading back through the attribute table rather than using the
+	 * Kconfig values directly is the point — if a coordinator has
+	 * written LongPollInterval, the table holds its value and the PIM
+	 * must follow it.
+	 */
+	zb_zcl_attr_t *attr_desc;
+	zb_uint32_t long_poll_qs = 0;
+
+	attr_desc = zb_zcl_get_attr_desc_a(APP_ENDPOINT,
+					   ZB_ZCL_CLUSTER_ID_POLL_CONTROL,
+					   ZB_ZCL_CLUSTER_SERVER_ROLE,
+					   ZB_ZCL_ATTR_POLL_CONTROL_LONG_POLL_INTERVAL_ID);
+	if (attr_desc != NULL) {
+		long_poll_qs = ZB_ZCL_GET_ATTRIBUTE_VAL_32(attr_desc);
+		zb_zdo_pim_set_long_poll_interval(
+			ZB_QUARTERECONDS_TO_MSEC(long_poll_qs));
+	}
+
+	/*
+	 * Deliberately NOT pushing ShortPollInterval / FastPollTimeout at
+	 * the PIM, even though known_issues.rst's snippet does. Those two
+	 * setters (zb_zdo_pim_set_fast_poll_interval / _timeout) are not in
+	 * ncs-zigbee v1.3.0's public headers — that snippet is written
+	 * against ZBOSS internals behind ZB_USE_INTERNAL_HEADERS. The
+	 * fast-poll path is driven by the Poll Control cluster from its own
+	 * attributes anyway; only the long-poll interval needs the manual
+	 * nudge above, which is also the only one the doc's rationale
+	 * (NVRAM restore not reaching the PIM) actually applies to.
+	 */
+
+	/* Still open a turbo-poll window for Z2M's interview reads — the
+	 * first check-in is one whole check-in interval away, far too late
+	 * to cover commissioning.
+	 */
 	zb_zdo_pim_start_turbo_poll_continuous(
 		CONFIG_APP_ZIGBEE_JOIN_TURBO_POLL_MS);
-	LOG_INF("sleepy ED: long_poll=%d ms, turbo_poll_window=%d ms",
-		CONFIG_APP_ZIGBEE_LONG_POLL_INTERVAL_MS,
+
+	LOG_INF("sleepy ED: long_poll=%u ms (from attr), turbo_poll_window=%d ms",
+		(unsigned)ZB_QUARTERECONDS_TO_MSEC(long_poll_qs),
 		CONFIG_APP_ZIGBEE_JOIN_TURBO_POLL_MS);
 }
 
@@ -459,6 +551,56 @@ void zboss_signal_handler(zb_bufid_t bufid)
 	}
 }
 
+/* ZCL expresses every Poll Control interval in quarter-seconds. */
+#define QS_FROM_SEC(s)  ((zb_uint32_t)(s) * 4U)
+#define QS_FROM_MS(ms)  ((zb_uint32_t)(ms) / 250U)
+
+/*
+ * Seed the Poll Control attributes from the app's Kconfig (#62 option B).
+ *
+ * These become the single source of truth for poll cadence. Before this
+ * cluster existed, apply_sleepy_poll_intervals_if_joined() pushed the
+ * Kconfig values straight at the PIM; now the attribute table holds them
+ * and the PIM is driven *from* the attributes, so a coordinator that
+ * writes LongPollInterval actually changes behaviour instead of being
+ * silently overwritten on the next join. That was the conflict flagged as
+ * a risk on the ticket.
+ */
+static void poll_control_attrs_init(void)
+{
+	dev_ctx.poll_checkin_interval =
+		QS_FROM_SEC(CONFIG_APP_ZIGBEE_CHECKIN_INTERVAL_S);
+	dev_ctx.poll_long_poll_interval =
+		QS_FROM_MS(CONFIG_APP_ZIGBEE_LONG_POLL_INTERVAL_MS);
+	dev_ctx.poll_fast_poll_timeout =
+		(zb_uint16_t)QS_FROM_SEC(CONFIG_APP_ZIGBEE_FAST_POLL_TIMEOUT_S);
+
+	/* Short poll is the cadence used *during* a fast-poll window. The
+	 * ZCL default (2 qs = 500 ms) is slower than the 100 ms turbo poll
+	 * the button path uses, but it only runs for fast_poll_timeout and
+	 * herdsman needs just a few round-trips to drain its queue.
+	 */
+	dev_ctx.poll_short_poll_interval =
+		ZB_ZCL_POLL_CONTROL_SHORT_POLL_INTERVAL_DEFAULT_VALUE;
+
+	/* 0 = "no client-imposed floor/ceiling". We deliberately don't
+	 * restrict what a coordinator may write; if Z2M wants to check in
+	 * more often it's welcome to, and the battery cost is its own
+	 * (see the Kconfig help).
+	 */
+	dev_ctx.poll_checkin_interval_min =
+		ZB_ZCL_POLL_CONTROL_CHECKIN_MIN_INTERVAL_DEFAULT_VALUE;
+	dev_ctx.poll_long_poll_interval_min =
+		ZB_ZCL_POLL_CONTROL_LONG_POLL_MIN_INTERVAL_DEFAULT_VALUE;
+	dev_ctx.poll_fast_poll_timeout_max =
+		ZB_ZCL_POLL_CONTROL_FAST_POLL_MAX_TIMEOUT_DEFAULT_VALUE;
+
+	LOG_INF("poll control: checkin=%u s, fast_poll_timeout=%u s, long_poll=%u ms",
+		CONFIG_APP_ZIGBEE_CHECKIN_INTERVAL_S,
+		CONFIG_APP_ZIGBEE_FAST_POLL_TIMEOUT_S,
+		CONFIG_APP_ZIGBEE_LONG_POLL_INTERVAL_MS);
+}
+
 static void metering_attrs_init(void)
 {
 	/* CurrentSummationDelivered — starts at 0; replaced by whatever
@@ -597,6 +739,7 @@ static void app_clusters_attr_init(void)
 		ZB_ZCL_IDENTIFY_IDENTIFY_TIME_DEFAULT_VALUE;
 
 	metering_attrs_init();
+	poll_control_attrs_init();
 }
 
 /*

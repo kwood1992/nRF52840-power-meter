@@ -11,6 +11,17 @@
  *                          the pulse accumulator, plus Multiplier /
  *                          Divisor so Z2M reads kWh natively (see the
  *                          design doc's Zigbee-model row).
+ *   * PollCtrl  (0x0020) — Poll Control server, so a coordinator can
+ *                          queue a downlink and have it delivered on our
+ *                          next check-in instead of racing the 10 s ZCL
+ *                          deadline against a 60 s long poll (issue #62
+ *                          option B).
+ *
+ * Poll Control is declared unconditionally rather than behind a Kconfig
+ * gate. Gating it would need a second cluster-list *and* a second simple
+ * descriptor (the cluster count is baked into both macros below), and the
+ * cluster costs nothing when APP_ZIGBEE_SLEEPY_ED is off — ZBOSS simply
+ * never has a reason to check in.
  *
  * Pattern is a stripped-down copy of ncs-zigbee's
  * `ZB_HA_DECLARE_SMART_PLUG_*` macros — reporting_ctx sized for the
@@ -33,8 +44,8 @@
 #define ZB_METER_DEVICE_ID   0x0053
 #define ZB_METER_DEVICE_VER  0
 
-/* Server clusters: Basic, Identify, Metering. */
-#define ZB_METER_IN_CLUSTER_NUM   3
+/* Server clusters: Basic, Identify, Metering, Poll Control. */
+#define ZB_METER_IN_CLUSTER_NUM   4
 
 /* No client clusters (nothing on the app endpoint needs to send
  * commands to a peer).
@@ -55,7 +66,8 @@
 		cluster_list_name,                                        \
 		basic_attr_list,                                          \
 		identify_attr_list,                                       \
-		metering_attr_list)                                       \
+		metering_attr_list,                                       \
+		poll_control_attr_list)                                   \
 zb_zcl_cluster_desc_t cluster_list_name[] =                               \
 {                                                                         \
 	ZB_ZCL_CLUSTER_DESC(                                              \
@@ -78,6 +90,13 @@ zb_zcl_cluster_desc_t cluster_list_name[] =                               \
 		(metering_attr_list),                                     \
 		ZB_ZCL_CLUSTER_SERVER_ROLE,                               \
 		ZB_ZCL_MANUF_CODE_INVALID                                 \
+	),                                                                \
+	ZB_ZCL_CLUSTER_DESC(                                              \
+		ZB_ZCL_CLUSTER_ID_POLL_CONTROL,                           \
+		ZB_ZCL_ARRAY_SIZE(poll_control_attr_list, zb_zcl_attr_t), \
+		(poll_control_attr_list),                                 \
+		ZB_ZCL_CLUSTER_SERVER_ROLE,                               \
+		ZB_ZCL_MANUF_CODE_INVALID                                 \
 	)                                                                 \
 }
 
@@ -96,7 +115,8 @@ zb_zcl_cluster_desc_t cluster_list_name[] =                               \
 		{                                                                      \
 			ZB_ZCL_CLUSTER_ID_BASIC,                                       \
 			ZB_ZCL_CLUSTER_ID_IDENTIFY,                                    \
-			ZB_ZCL_CLUSTER_ID_METERING                                     \
+			ZB_ZCL_CLUSTER_ID_METERING,                                    \
+			ZB_ZCL_CLUSTER_ID_POLL_CONTROL                                 \
 		}                                                                      \
 	}
 
