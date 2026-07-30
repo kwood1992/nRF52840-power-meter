@@ -55,9 +55,13 @@ in-flight notes live in
 | 5. Set up Zigbee2MQTT | [Below](#home-assistant--zigbee2mqtt-setup) |
 | 6. Calibrate imp/kWh | [Below](#calibrating-impkwh) |
 
-Prefer not to build the firmware yourself? Every push produces UF2 artifacts
-for both board variants — grab them from the
+Prefer not to build the firmware yourself? Every push produces a UF2
+artifact — grab it from the
 [Actions tab](https://github.com/kwood1992/nRF52840-power-meter/actions/workflows/firmware.yml).
+
+> **Get the Sense variant of the board.** The design doc's BOM says plain,
+> but the firmware only builds for `xiao_ble/nrf52840/sense` today
+> ([#75](https://github.com/kwood1992/nRF52840-power-meter/issues/75)).
 
 > **Two things that will cost you an evening if you skip them.**
 >

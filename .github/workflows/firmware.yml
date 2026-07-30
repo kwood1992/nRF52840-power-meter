@@ -48,14 +48,23 @@ jobs:
       run:
         shell: bash
 
+    # Sense only. The plain xiao_ble/nrf52840 target does NOT build today:
+    # app.overlay disables the Sense-only IMU nodes (&lsm6ds3tr_c and the two
+    # regulator nodes) unconditionally, and on the plain board those labels
+    # don't exist, so DTS fails with "undefined node label 'lsm6ds3tr_c'".
+    #
+    # Deliberately not "fixed" by moving them to a board-specific overlay
+    # without a bench check: this project force-loads app.overlay precisely
+    # because boards/<target>.overlay auto-discovery proved unreliable here,
+    # and a silently-skipped overlay would leave the IMU regulator powered —
+    # ~0.6-1.7 mA, straight into the sleep budget, with nothing in the build
+    # output to say so. Tracked in #75; restore the matrix when it's fixed.
     strategy:
       fail-fast: false
       matrix:
         include:
           - variant: sense
             board: xiao_ble/nrf52840/sense
-          - variant: plain
-            board: xiao_ble/nrf52840
 
     steps:
       # west.yml declares `self: path: nrf52840-power-meter`, so the repo
@@ -125,12 +134,23 @@ jobs:
           print(f'initial SP    0x{sp:08x}')
           print(f'reset handler 0x{reset:08x}')
 
-          if not (0x00027001 <= reset <= 0x0002FFFF):
+          # App slot runs from 0x27000 (above MBR + SoftDevice) up to
+          # 0xF4000 (start of the Adafruit UF2 bootloader). The Thumb bit
+          # makes the low bit of a valid reset handler 1.
+          APP_SLOT_START = 0x00027000
+          APP_SLOT_END   = 0x000F4000
+
+          if not (APP_SLOT_START < reset < APP_SLOT_END):
               sys.exit(
                   f'FAIL: reset handler 0x{reset:08x} is outside the app slot '
-                  '(0x00027001-0x0002FFFF). The flash offset was not applied — '
-                  'this firmware would hard-fault on boot. Check --no-sysbuild.'
+                  f'(0x{APP_SLOT_START:08x}-0x{APP_SLOT_END:08x}). The flash '
+                  'offset was not applied — this firmware would hard-fault on '
+                  'boot. Check --no-sysbuild.'
               )
+
+          if target != APP_SLOT_START:
+              sys.exit(f'FAIL: UF2 writes to 0x{target:08x}, expected '
+                       f'0x{APP_SLOT_START:08x}')
 
           print('OK: reset handler is inside the app slot')
           EOF

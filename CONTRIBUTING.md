@@ -145,11 +145,12 @@ Point at the `seeed-studio-zigbee-energy-meter/` folder (the one containing
 ### 5. Create a build configuration and build
 
 - On the application, click *Add Build Configuration*
-- **Board target**: `xiao_ble/nrf52840/sense` (the XIAO nRF52840 board this
-  project targets is the Sense variant — identifiable by the onboard IMU
-  and PDM microphone visible on the top side, and by the `XIAO-SENSE`
-  volume that mounts in bootloader mode). For a plain XIAO nRF52840 use
-  `xiao_ble/nrf52840`.
+- **Board target**: `xiao_ble/nrf52840/sense` — the Sense variant,
+  identifiable by the onboard IMU and PDM microphone on the top side, and by
+  the `XIAO-SENSE` volume that mounts in bootloader mode. This is currently
+  the **only** target that builds; the plain `xiao_ble/nrf52840` fails at
+  devicetree because `app.overlay` references Sense-only IMU node labels
+  ([#75](https://github.com/kwood1992/nRF52840-power-meter/issues/75)).
 - **⚠️ Uncheck "Use sysbuild"** — see the Build Gotchas section below.
   Leaving this on will produce firmware that flashes cleanly but silently
   refuses to boot.
@@ -256,9 +257,18 @@ print(f'writes to 0x{target:08x}, initial SP=0x{sp:08x}, reset handler=0x{reset:
 EOF
 ```
 
-Reset handler must be in the range `0x00027001`–`0x0002FFFF` (Thumb bit set,
-inside the app slot). Anything under `0x00027000` means the linker didn't
-apply the flash offset — you've hit the sysbuild bug again.
+Reset handler must land inside the app slot: above `0x00027000` (the MBR +
+SoftDevice region) and below `0x000F4000` (where the Adafruit UF2 bootloader
+starts). The low bit is the Thumb bit and will be 1.
+
+Anything under `0x00027000` means the linker didn't apply the flash offset —
+you've hit the sysbuild bug again.
+
+> An earlier version of this note gave the upper bound as `0x0002FFFF`. That
+> was written when the application was a walking skeleton barely 36 KB long;
+> the app has since grown past it, so that bound now rejects perfectly good
+> firmware. `firmware.yml` runs this same check in CI against the real slot
+> bounds.
 
 ## Alternative: self-contained west workspace
 

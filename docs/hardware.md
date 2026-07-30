@@ -12,24 +12,29 @@ assembling the physical device or changing the pin assignments.
 
 ## Board variant
 
-Either XIAO nRF52840 variant works. They differ only in the extra sensors
-the Sense carries, none of which this project uses.
+> **Buy the Sense.** Despite the design doc's BOM specifying the plain
+> variant, the firmware currently builds **only** for the Sense
+> (`xiao_ble/nrf52840/sense`). See
+> [#75](https://github.com/kwood1992/nRF52840-power-meter/issues/75).
 
-| Variant | Board target for `west build -b` | Notes |
+| Variant | Board target for `west build -b` | Status |
 |---|---|---|
-| XIAO nRF52840 (plain) | `xiao_ble/nrf52840` | The design-doc BOM pick. Nothing to disable. |
-| XIAO nRF52840 **Sense** | `xiao_ble/nrf52840/sense` | Has an onboard IMU + PDM mic. `app.overlay` disables both — see the warning below. |
+| XIAO nRF52840 **Sense** | `xiao_ble/nrf52840/sense` | **Supported.** The bench rig board; mounts as `XIAO-SENSE` in bootloader mode. |
+| XIAO nRF52840 (plain) | `xiao_ble/nrf52840` | **Does not build.** `app.overlay` unconditionally disables the Sense-only IMU nodes, and those labels don't exist on the plain board, so devicetree fails with `undefined node label 'lsm6ds3tr_c'`. |
 
-> **If you use the Sense, do not remove the IMU-disable block in
-> `app.overlay`.** The Sense board DTS declares the LSM6DS3TR-C's regulator
-> with `regulator-boot-on`, so Zephyr powers the IMU at boot even though
-> nothing uses it. It then draws its ~0.6–1.7 mA quiescent current forever,
-> which swamps the entire sleep budget. The overlay disables the sensor
-> node, its regulator, and the mic regulator.
+The two boards are otherwise electrically equivalent for this project's
+purposes — the Sense just adds an IMU and a PDM microphone, neither of which
+the firmware uses.
 
-The bench rig for this project is a Sense (it mounts as the `XIAO-SENSE`
-volume in bootloader mode), which is why the Sense target appears in most
-of the tooling examples.
+> **Do not remove the IMU-disable block in `app.overlay`.** The Sense board
+> DTS declares the LSM6DS3TR-C's regulator with `regulator-boot-on`, so
+> Zephyr powers the IMU at boot even though nothing uses it. It then draws
+> its ~0.6–1.7 mA quiescent current forever, which swamps the entire sleep
+> budget. The overlay disables the sensor node, its regulator, and the mic
+> regulator.
+>
+> That block is also exactly why the plain build fails, and why the fix
+> isn't a one-line move — see #75.
 
 ---
 
