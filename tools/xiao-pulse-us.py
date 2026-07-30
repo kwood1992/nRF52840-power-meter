@@ -1,10 +1,19 @@
 #!/usr/bin/env python3
 """Fire N precisely-timed pulses on the Pi's XIAO D7 bench-inject wire.
 
-Runs on the Pi (rpi-xiao). Uses pigpio's wave-DMA to hit sub-microsecond
-edge accuracy so the min-pulse-width filter (#59) can be exercised at
-threshold ± 100 µs, which shell-driven `pinctrl` (5–15 ms per fork/exec)
-can't reach.
+Runs on the Pi (rpi-xiao). Writes GPSET/GPCLR registers directly through
+/dev/gpiomem and busy-waits on time.perf_counter_ns() between edges. No
+pigpiod / RPi.GPIO / lgpio dependency — just Python's stdlib and the
+`gpio` group membership /dev/gpiomem is granted by default on Raspberry
+Pi OS.
+
+Precision is limited by Python-thread preemption + GIL wake latency
+(~10–50 µs jitter on an otherwise-idle Pi 3B+), which is well inside the
+±100 µs discrimination the #59 AC bench test needs (compare 900 µs vs
+1100 µs pulses against a 1000 µs threshold).
+
+Assumes the BCM2837/BCM2711 GPIO peripheral layout (Pi 3 / Pi 4). Pi 5's
+RP1 chip uses a different controller and this tool would need a rewrite.
 
 Pulse shape: idle HIGH → LOW for --pulse-us → HIGH for --gap-us → repeat.
 The XIAO's D7 GPIOTE sees a HITOLO edge on entry and a LOTOHI edge on
@@ -12,32 +21,44 @@ exit; the impl-1 TIMER3 chain gates the LOTOHI-triggered TIMER2 COUNT on
 whether the interval exceeds CONFIG_APP_PULSE_MIN_WIDTH_US (or the
 NVS/Zigbee override).
 
-Prerequisites:
-  sudo apt install python3-pigpio
-  sudo systemctl enable --now pigpiod
+Usage:
+  xiao-pulse-us.py --count 1000 --pulse-us 900 --gap-us 5000
 """
 import argparse
+import mmap
+import os
+import struct
+import subprocess
 import sys
 import time
 
-try:
-    import pigpio
-except ImportError:
-    sys.stderr.write(
-        "pigpio module not found. On Raspberry Pi OS:\n"
-        "  sudo apt install python3-pigpio\n"
-        "  sudo systemctl enable --now pigpiod\n"
-    )
-    sys.exit(2)
+# BCM2837 / BCM2711 GPIO register offsets within the /dev/gpiomem window.
+GPSET0 = 0x1C
+GPCLR0 = 0x28
+GPIO_MEM_SIZE = 4096
 
 PIN_DEFAULT = 27
 
 
-def build_pulse(pin: int, pulse_us: int, gap_us: int) -> list:
-    return [
-        pigpio.pulse(0, 1 << pin, pulse_us),
-        pigpio.pulse(1 << pin, 0, gap_us),
-    ]
+def setup_output_high(pin: int) -> None:
+    """Configure `pin` as OUTPUT driven HIGH via pinctrl.
+
+    Reuses pinctrl for setup so the idle state matches xiao-pulse.sh and
+    we don't have to re-implement the GPFSEL read-modify-write in Python
+    where timing precision doesn't matter.
+    """
+    subprocess.run(["pinctrl", "set", str(pin), "op", "dh"], check=True)
+
+
+def restore_input_pullup(pin: int) -> None:
+    """Return `pin` to input-with-pullup so we're not sourcing current
+    into the XIAO's D7. Matches xiao-pulse.sh's exit state."""
+    subprocess.run(["pinctrl", "set", str(pin), "ip", "pu"], check=True)
+
+
+def busy_wait_ns(target_ns: int) -> None:
+    while time.perf_counter_ns() < target_ns:
+        pass
 
 
 def main() -> int:
@@ -52,57 +73,47 @@ def main() -> int:
     if args.count < 1 or args.pulse_us < 1 or args.gap_us < 1:
         sys.stderr.write("count/pulse-us/gap-us must all be >= 1\n")
         return 2
-    if args.count > 65535:
-        # pigpio wave_chain loop counter is a 16-bit little-endian pair;
-        # split into multiple invocations if a bigger run is ever needed.
-        sys.stderr.write("count > 65535 not supported by a single wave_chain loop; split the run\n")
+    if args.pin < 0 or args.pin > 31:
+        sys.stderr.write("pin must be in 0..31 (this tool writes GPSET0/GPCLR0 only)\n")
         return 2
 
-    pi = pigpio.pi()
-    if not pi.connected:
-        sys.stderr.write(
-            "pigpio daemon not reachable. Start it with: sudo systemctl start pigpiod\n"
-        )
+    setup_output_high(args.pin)
+
+    pin_mask = 1 << args.pin
+    set_word = struct.pack("<I", pin_mask)
+
+    try:
+        fd = os.open("/dev/gpiomem", os.O_RDWR | os.O_SYNC)
+    except PermissionError:
+        sys.stderr.write("permission denied on /dev/gpiomem — user must be in the 'gpio' group\n")
         return 3
 
     try:
-        pi.set_mode(args.pin, pigpio.OUTPUT)
-        pi.write(args.pin, 1)
+        mem = mmap.mmap(fd, GPIO_MEM_SIZE, flags=mmap.MAP_SHARED,
+                        prot=mmap.PROT_READ | mmap.PROT_WRITE, offset=0)
+    finally:
+        os.close(fd)
 
-        pi.wave_clear()
-        pi.wave_add_generic(build_pulse(args.pin, args.pulse_us, args.gap_us))
-        wid = pi.wave_create()
-        if wid < 0:
-            sys.stderr.write(f"wave_create failed: {wid}\n")
-            return 4
+    try:
+        pulse_ns = args.pulse_us * 1000
+        gap_ns = args.gap_us * 1000
 
-        if args.count == 1:
-            chain = [wid]
-        else:
-            lo = args.count & 0xFF
-            hi = (args.count >> 8) & 0xFF
-            chain = [255, 0, wid, 255, 1, lo, hi]
-
-        pi.wave_chain(chain)
-
-        expected_s = args.count * (args.pulse_us + args.gap_us) / 1_000_000.0
-        deadline = time.monotonic() + expected_s + 1.0
-        while pi.wave_tx_busy():
-            if time.monotonic() > deadline:
-                sys.stderr.write("wave_tx_busy timeout — bailing\n")
-                return 5
-            time.sleep(0.001)
-
-        pi.set_mode(args.pin, pigpio.INPUT)
-        pi.set_pull_up_down(args.pin, pigpio.PUD_UP)
-        pi.wave_delete(wid)
+        t = time.perf_counter_ns()
+        for _ in range(args.count):
+            mem[GPCLR0:GPCLR0 + 4] = set_word
+            t += pulse_ns
+            busy_wait_ns(t)
+            mem[GPSET0:GPSET0 + 4] = set_word
+            t += gap_ns
+            busy_wait_ns(t)
 
         print(
             f"sent {args.count} pulse(s): pulse_us={args.pulse_us} "
             f"gap_us={args.gap_us} on BCM {args.pin}"
         )
     finally:
-        pi.stop()
+        mem.close()
+        restore_input_pullup(args.pin)
     return 0
 
 
