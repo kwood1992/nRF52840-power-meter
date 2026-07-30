@@ -9,12 +9,12 @@ name: Firmware build
 # hash of west.yml, so it invalidates exactly when the pinned revisions
 # change.
 #
-# Measured 2026-07-30: cold 4.3 min, cached 4.9 min — the cache is not
-# currently paying for itself. `west update --narrow -o=--depth=1` is
-# quick, the Zephyr build dominates, and restoring the 850 MB workspace
-# costs about what re-cloning does. Kept for now because it also insulates
-# the job from upstream clone flakiness across ~20 remotes, but if the
-# 10 GB cache quota ever gets tight this is the first thing to drop.
+# Measured 2026-07-30: cold 4.3 min, cached 2.3 min. Note the cached
+# figure depends on the cache action version — under actions/cache@v4 a
+# hit ran to 4.9 min, i.e. restoring the 850 MB workspace cost as much as
+# re-cloning it and the cache bought nothing. v6 restores at ~130 MB/s and
+# the saving is real. If you ever downgrade that action, re-measure before
+# assuming the cache is still worth its 850 MB of the 10 GB quota.
 #
 # The toolchain image sets BASH_ENV=/opt/non-interactive-setup.sh, which
 # bash sources for non-interactive shells — so `west`, CMake, ninja and the
