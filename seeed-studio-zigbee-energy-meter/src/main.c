@@ -10,6 +10,7 @@
 #include <zephyr/usb/usb_device.h>
 #endif
 
+#include "button_action.h"
 #include "button_press_classifier.h"
 #include "hw_pulse_counter.h"
 #include "led_controller.h"
@@ -245,9 +246,11 @@ static void button_dispatch_thread(void *a, void *b, void *c)
 		uint32_t duration = (uint32_t)atomic_get(&button_press_duration_ms);
 		enum button_press_kind kind =
 			button_press_classifier_classify(&button_classifier, duration);
+		enum button_action action =
+			button_action_for_press(kind, zigbee_app_is_joined());
 
-		switch (kind) {
-		case BUTTON_PRESS_SHORT:
+		switch (action) {
+		case BUTTON_ACTION_JOIN:
 			LOG_INF("button short-press (%u ms) — joining", duration);
 			led_request(LED_PATTERN_BUTTON_ACK, LED_PRIO_BUTTON_ACK);
 			/* Let the 100 ms white ack render before start_join
@@ -259,13 +262,24 @@ static void button_dispatch_thread(void *a, void *b, void *c)
 			k_sleep(K_MSEC(100));
 			zigbee_app_start_join();
 			break;
-		case BUTTON_PRESS_LONG:
+		case BUTTON_ACTION_WAKE:
+			/* Already joined — open a turbo-poll window so a Z2M
+			 * attribute write can land inside its ZCL deadline
+			 * (#62). Nothing preempts the ack here, so unlike the
+			 * JOIN path no settling delay is needed.
+			 */
+			LOG_INF("button short-press (%u ms) — wake for write",
+				duration);
+			led_request(LED_PATTERN_BUTTON_ACK, LED_PRIO_BUTTON_ACK);
+			zigbee_app_wake_for_write();
+			break;
+		case BUTTON_ACTION_FACTORY_RESET:
 			LOG_WRN("button long-press (%u ms) — factory reset", duration);
 			zigbee_app_factory_reset();
 			led_request(LED_PATTERN_ERASE_CONFIRM,
 				    LED_PRIO_ERASE_CONFIRM);
 			break;
-		case BUTTON_PRESS_NEITHER:
+		case BUTTON_ACTION_NONE:
 			LOG_INF("button press (%u ms) ignored — outside short/long band",
 				duration);
 			break;
