@@ -1,0 +1,6 @@
+# z2m-events started=2026-07-30T10:34:23+1000 started_wallclock_ms=1785371663496
+# ieee=0xf4ce361b0656e80e duration_s=35.0
+# note=label=with-events fw=8f3ca41+dirty
+wallclock_ms,topic,field,value
+1785371670903,zigbee2mqtt/bridge/event,device_joined,{"ieee_address": "0xf4ce361b0656e80e"}
+1785371679324,zigbee2mqtt/bridge/event,device_interview_successful,{"ieee_address": "0xf4ce361b0656e80e"}

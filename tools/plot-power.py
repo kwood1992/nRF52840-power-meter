@@ -14,6 +14,7 @@ import argparse
 import csv
 import datetime as dt
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -48,6 +49,9 @@ def parse_ina219(path: Path):
             rows.append((ts_ms, current_mA))
     if start_iso is None:
         raise ValueError(f"{path}: no `# ... started=<ISO>` header — can't align to wallclock")
+    # `date +%z` on the Pi emits `+HHMM` (no colon) but Python 3.9's
+    # fromisoformat requires `+HH:MM`. Normalize.
+    start_iso = re.sub(r"([+-]\d{2})(\d{2})$", r"\1:\2", start_iso)
     start_dt = dt.datetime.fromisoformat(start_iso)
     return start_dt, rows
 

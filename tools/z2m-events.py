@@ -18,6 +18,7 @@ Row format: wallclock_ms,topic_slug,event_or_field,value
 import argparse
 import json
 import os
+import select
 import signal
 import subprocess
 import sys
@@ -59,9 +60,17 @@ def main() -> int:
     print("wallclock_ms,topic,field,value", file=sys.stdout)
     sys.stdout.flush()
 
-    # Subscribe to bridge/event + the device topic in one z2m-cli invocation.
-    # -v gives `topic message` per line so we can attribute each row.
-    cmd = f"~/z2m-cli sub -v bridge/event {args.ieee}"
+    # Subscribe to bridge/event + the device topic in one mosquitto_sub
+    # invocation. z2m-cli only takes one -t so we bypass it and read the
+    # same creds file it does. -v gives `topic message` per line so we
+    # can attribute each row to its source topic.
+    cmd = (
+        "set -eu; . ~/.mosquitto-xiao-creds; "
+        f"exec mosquitto_sub -h \"$BROKER_HOST\" -p \"$BROKER_PORT\" "
+        f"-u \"$BROKER_USER\" -P \"$BROKER_PASS\" -v "
+        f"-t \"$Z2M_BASE_TOPIC/bridge/event\" "
+        f"-t \"$Z2M_BASE_TOPIC/{args.ieee}\""
+    )
     proc = subprocess.Popen(
         ["bash", "-lc", cmd],
         stdout=subprocess.PIPE,
@@ -83,9 +92,18 @@ def main() -> int:
     signal.signal(signal.SIGINT, stop_and_exit)
 
     assert proc.stdout is not None
+    fd = proc.stdout.fileno()
     try:
-        for line in proc.stdout:
+        while True:
             if deadline is not None and time.monotonic() > deadline:
+                break
+            # Non-blocking read with 0.5s poll so --duration is honored even
+            # when there's no MQTT traffic on either subscribed topic.
+            ready, _, _ = select.select([fd], [], [], 0.5)
+            if not ready:
+                continue
+            line = proc.stdout.readline()
+            if not line:
                 break
             parsed = parse_message(line)
             if parsed is None:
