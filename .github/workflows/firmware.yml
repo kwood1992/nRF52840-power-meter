@@ -1,12 +1,20 @@
 name: Firmware build
 
-# Compiles the Zephyr application for both documented board targets using
-# the exact NCS + ncs-zigbee pairing pinned in west.yml.
+# Compiles the Zephyr application using the exact NCS + ncs-zigbee pairing
+# pinned in west.yml. Board targets come from the matrix below — currently
+# sense only, see the note there and #75.
 #
 # Slow relative to ci.yml: a cold run does a full `west update` (sdk-nrf
-# plus every NCS module, ~2 GB even shallow-cloned) and takes ~20 min.
-# Cached runs are ~5 min. The cache key is the hash of west.yml, so it
-# invalidates exactly when the pinned revisions change.
+# plus every NCS module, ~2 GB even shallow-cloned). The cache key is the
+# hash of west.yml, so it invalidates exactly when the pinned revisions
+# change.
+#
+# Measured 2026-07-30: cold 4.3 min, cached 4.9 min — the cache is not
+# currently paying for itself. `west update --narrow -o=--depth=1` is
+# quick, the Zephyr build dominates, and restoring the 850 MB workspace
+# costs about what re-cloning does. Kept for now because it also insulates
+# the job from upstream clone flakiness across ~20 remotes, but if the
+# 10 GB cache quota ever gets tight this is the first thing to drop.
 #
 # The toolchain image sets BASH_ENV=/opt/non-interactive-setup.sh, which
 # bash sources for non-interactive shells — so `west`, CMake, ninja and the
@@ -69,7 +77,7 @@ jobs:
     steps:
       # west.yml declares `self: path: nrf52840-power-meter`, so the repo
       # must sit at that path for `west init -l` to resolve the manifest.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           path: nrf52840-power-meter
 
@@ -81,7 +89,7 @@ jobs:
 
       - name: Cache west workspace
         id: west-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             .west
@@ -156,7 +164,7 @@ jobs:
           EOF
 
       - name: Upload firmware
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: zigbee-energy-meter-${{ matrix.variant }}
           path: |
