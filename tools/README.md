@@ -32,15 +32,43 @@ Host side:
 ```
 ./tools/rtt-tail.sh [label]   # log lands at seeed-studio-zigbee-energy-meter/docs/working/rtt-<ts>-<label>.log
 ./tools/rtt-tail.sh -         # stream to stdout only, no log file
+./tools/rtt-tail.sh --stop    # clear a leaked openocd and exit
 ```
 
-Ctrl+C tears the OpenOCD session down cleanly so the next `flash-swd.sh` / `test-join.sh` isn't blocked by a stale RTT server holding the SWD wires. If a previous run wasn't cleanly interrupted, `rtt-tail.sh` kills any stale openocd on the Pi at startup, so it's safe to just re-run.
+Ctrl+C tears the OpenOCD session down cleanly, and the trap covers `HUP` as well as `INT`/`TERM`/`EXIT` so closing the terminal doesn't leak the process either. `rtt-tail.sh` also stops any stale openocd on the Pi at startup, so re-running is safe.
+
+### If a flash fails with parity / NVMC errors, check for a leaked openocd
+
+A second openocd on the same SWD wires is **not** a benign "port in use" problem — two of them fighting over SWCLK/SWDIO can fail an erase partway and leave the app slot partially erased, so the board comes back running nothing. This happened on 2026-07-30 (issue #68).
+
+`flash-swd.sh` now pre-flights for this and refuses *before* touching flash. If it does:
+
+```
+./tools/rtt-tail.sh --stop                 # normal fix, needs no sudo
+ssh rpi-xiao 'sudo pkill -f openocd'       # only if the telnet port is wedged
+```
+
+The second form needs your password — passwordless sudo on the Pi is scoped to `openocd` only. To check by hand:
+
+```
+ssh rpi-xiao 'ps -eo pid,user,etime,cmd | grep [o]penocd'
+```
+
+**Never** run the `pinctrl set 24 ip pd` SWD continuity probe while an openocd is running. Its bitbang driver sets pin direction once at init and never re-asserts it, so flipping GPIO 24/25 underneath it wedges that instance into `Error connecting DP: cannot read IDR` permanently — a power cycle does not recover it, only restarting openocd does.
 
 Don't build the USB-dev workflow with `rtt.conf` — it turns off CDC-ACM console, which is the whole point of USB iteration.
 
 ## Other helpers
 
-- `test-join.sh` — force-rejoin cycle: kick the device out via Z2M, watch it re-interview, PASS/FAIL on the resulting interview_state. See known caveat about stale `interview_state` from a prior join reporting SUCCESSFUL falsely.
+- `test-join.sh` — force-rejoin cycle: remove Z2M's cached entry, factory-reset the device, watch it re-interview, PASS/FAIL on the result.
+
+  It removes the Z2M device entry first (step 3) because Z2M keys `interview_state`, `configured_reportings` **and the endpoint's cluster list** by IEEE, and a device-side factory reset invalidates none of it. Without the removal the test can pass off the previous join's cache, and can report a stale cluster list as current — both observed. The cost is that the device's Z2M/HA history resets on every run.
+
+  It prints the advertised input clusters on completion, and `EXPECT_CLUSTERS` asserts them (order-insensitive, exit 4 on mismatch) so a firmware cluster-list change can be regression-tested:
+
+  ```
+  EXPECT_CLUSTERS=genBasic,genIdentify,genPollCtrl,seMetering ./tools/test-join.sh
+  ```
 - `xiao-pulse.sh` / `xiao-pulse-burst.sh` — drive the D7 pulse-simulator GPIO on the Pi to feed synthetic pulses into the meter. Shell + `pinctrl`, so per-edge timing bottoms out at 5–15 ms.
 - `xiao-pulse-us.sh` — µs-precision variant for #59's min-pulse-width filter AC test (threshold ± 100 µs boundary discrimination). Writes BCM `GPSET0` / `GPCLR0` directly through `/dev/gpiomem` and busy-waits on `perf_counter_ns`, so sub-millisecond pulse widths are actually accurate. No daemon dependency — user in the `gpio` group runs it without sudo.
 
