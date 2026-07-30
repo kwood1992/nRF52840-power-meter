@@ -56,23 +56,18 @@ jobs:
       run:
         shell: bash
 
-    # Sense only. The plain xiao_ble/nrf52840 target does NOT build today:
-    # app.overlay disables the Sense-only IMU nodes (&lsm6ds3tr_c and the two
-    # regulator nodes) unconditionally, and on the plain board those labels
-    # don't exist, so DTS fails with "undefined node label 'lsm6ds3tr_c'".
-    #
-    # Deliberately not "fixed" by moving them to a board-specific overlay
-    # without a bench check: this project force-loads app.overlay precisely
-    # because boards/<target>.overlay auto-discovery proved unreliable here,
-    # and a silently-skipped overlay would leave the IMU regulator powered —
-    # ~0.6-1.7 mA, straight into the sleep budget, with nothing in the build
-    # output to say so. Tracked in #75; restore the matrix when it's fixed.
+    # Both documented board targets. The plain one used to fail at DTS parse
+    # time because app.overlay referenced Sense-only IMU nodes; those moved to
+    # overlays/sense.overlay in #75. Keep plain in the matrix — it is the
+    # variant the design-doc BOM specifies, and it silently rotted once.
     strategy:
       fail-fast: false
       matrix:
         include:
           - variant: sense
             board: xiao_ble/nrf52840/sense
+          - variant: plain
+            board: xiao_ble/nrf52840
 
     steps:
       # west.yml declares `self: path: nrf52840-power-meter`, so the repo
@@ -161,6 +156,70 @@ jobs:
                        f'0x{APP_SLOT_START:08x}')
 
           print('OK: reset handler is inside the app slot')
+          EOF
+
+      # The safety net for #75. Splitting the IMU nodes into a separately
+      # included overlay traded a loud failure (plain board won't compile) for
+      # a potentially silent one (overlay not applied on Sense -> IMU regulator
+      # boots ON at ~0.6-1.7 mA, straight into the sleep budget, with a clean
+      # build log). This asserts against the *generated* devicetree that the
+      # nodes really are disabled, so that failure mode cannot ship quietly.
+      #
+      # A node we cannot find is a FAILURE, not a pass — otherwise a renamed
+      # node would make this check vacuously green, which is the exact trap it
+      # exists to prevent.
+      - name: Verify Sense-only nodes are disabled in the generated devicetree
+        if: matrix.variant == 'sense'
+        working-directory: nrf52840-power-meter/seeed-studio-zigbee-energy-meter
+        run: |
+          python3 - <<'EOF'
+          import re, sys
+
+          # Node names as they appear in the flattened DTS, not the labels.
+          WANT = [
+              r'lsm6ds3tr-c@[0-9a-f]+',   # the IMU itself
+              r'lsm6ds3tr-c-en',          # its regulator (P1.08) — the current draw
+              r'msm261d3526hicpm-c-en',   # microphone regulator (P1.10)
+          ]
+
+          dts = open('build/zephyr/zephyr.dts').read()
+          failures = []
+
+          for pattern in WANT:
+              m = re.search(r'^([ \t]*)(' + pattern + r')[ \t]*\{', dts, re.M)
+              if not m:
+                  failures.append(f'{pattern}: node not found in generated '
+                                  'devicetree at all — was it renamed upstream? '
+                                  'This check cannot silently pass.')
+                  continue
+
+              # Walk the node body by brace depth to avoid picking up a
+              # status from a sibling or child node.
+              i, depth = m.end() - 1, 0
+              for i in range(m.end() - 1, len(dts)):
+                  if dts[i] == '{':
+                      depth += 1
+                  elif dts[i] == '}':
+                      depth -= 1
+                      if depth == 0:
+                          break
+              body = dts[m.end():i]
+
+              status = re.search(r'status\s*=\s*"([a-z]+)"', body)
+              actual = status.group(1) if status else '(no status property)'
+              if actual != 'disabled':
+                  failures.append(
+                      f'{m.group(2)}: status is {actual!r}, expected '
+                      "'disabled'. overlays/sense.overlay was not applied — "
+                      'check the BOARD MATCHES "sense" guard in CMakeLists.txt.'
+                  )
+              else:
+                  print(f'OK: {m.group(2)} is disabled')
+
+          if failures:
+              sys.exit('FAIL:\n  ' + '\n  '.join(failures))
+
+          print('OK: all Sense-only nodes disabled in the generated devicetree')
           EOF
 
       - name: Upload firmware

@@ -131,35 +131,17 @@
 };
 
 /*
- * Battery-mode current fix — kill the XIAO Sense's IMU regulator so the
- * LSM6DS3TR-C doesn't draw its ~0.6-1.7 mA normal-mode quiescent current.
+ * The XIAO Sense's IMU regulator disable used to live here. It moved to
+ * overlays/sense.overlay, which CMakeLists.txt appends only for board
+ * targets ending in "sense".
  *
- * Root cause: the SENSE variant's board DT declares a fixed regulator on
- * P1.08 with `regulator-boot-on`, which Zephyr's regulator subsystem
- * enables at boot. The IMU sensor driver then fails to init (our overlay
- * doesn't use its I2C bus) but the regulator stays ON — sensor keeps
- * drawing current until an explicit disable.
+ * It had to move: &lsm6ds3tr_c and the two regulator nodes exist only in
+ * the Sense variant's board DT, so referencing them from this file — which
+ * is force-loaded for every target — made the plain xiao_ble/nrf52840
+ * build fail at DTS parse time. See #75.
  *
- * We don't use the IMU in this app. Disable both the sensor node (so no
- * driver instance is created) and the regulator node (so the P1.08 enable
- * pin doesn't drive HIGH at boot).
- *
- * The regulator node has no explicit label in the upstream board DTS —
- * refer to it by path via &{/lsm6ds3tr-c-en}. Same for the microphone
- * regulator on P1.10 (msm261d3526hicpm-c-en) which is off by default but
- * belt-and-braces disable is cheap.
+ * Everything below this point applies to both variants.
  */
-&lsm6ds3tr_c {
-	status = "disabled";
-};
-
-&{/lsm6ds3tr-c-en} {
-	status = "disabled";
-};
-
-&{/msm261d3526hicpm-c-en} {
-	status = "disabled";
-};
 
 /*
  * Kill the two on-board EasyDMA peripherals that were the real ~1.5 mA
