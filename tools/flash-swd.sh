@@ -137,7 +137,7 @@ fi
 # Match the bootloader-recovery invocation's structure (see
 # reference_openocd_swd_recovery memory), minus `nrf5 mass_erase` — we want
 # to preserve MBR + SoftDevice + bootloader across app flashes.
-OPENOCD_LOG="$(mktemp -t flash-swd-openocd.XXXXXX)"
+OPENOCD_LOG="$(mktemp "${TMPDIR:-/tmp}/flash-swd-openocd.XXXXXX")"
 trap 'rm -f "$OPENOCD_LOG"' EXIT
 
 echo "-> running OpenOCD program+verify..."

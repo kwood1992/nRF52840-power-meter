@@ -1,0 +1,17 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Wiring, pinout, and hardware setup
+    url: https://github.com/kwood1992/nRF52840-power-meter/blob/main/docs/hardware.md
+    about: >
+      Pin assignments, the phototransistor circuit, battery wiring, and the
+      LED and button reference. Check here before filing a wiring question.
+  - name: Toolchain and build problems
+    url: https://github.com/kwood1992/nRF52840-power-meter/blob/main/CONTRIBUTING.md#build-gotchas
+    about: >
+      A board that flashes cleanly then does nothing is almost always the NCS
+      sysbuild linker bug, not a brick. That and other known traps are here.
+  - name: Board appears dead — recovery
+    url: https://github.com/kwood1992/nRF52840-power-meter/blob/main/docs/swd-recovery-jig.md
+    about: >
+      SWD recovery for a genuinely bricked board, with a triage table for
+      telling a real brick from the things that merely look like one.

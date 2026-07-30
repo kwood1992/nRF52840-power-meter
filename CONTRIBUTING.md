@@ -8,6 +8,94 @@ Locked design decisions and the rationale for them live in
 Read this before proposing architectural changes. In-flight status is under
 [`seeed-studio-zigbee-energy-meter/docs/working/`](seeed-studio-zigbee-energy-meter/docs/working/).
 
+Wiring and pin assignments are in [`docs/hardware.md`](docs/hardware.md).
+
+**Contents**
+
+- [How to contribute](#how-to-contribute) — branches, commits, PRs, review
+- [Prerequisites](#prerequisites) and [toolchain setup](#recommended-setup-vs-code--nrf-connect-extension-pack)
+- [Build gotchas](#build-gotchas) — read before debugging a "dead" board
+- [Testing](#testing) — the three suites and what each is for
+
+---
+
+## How to contribute
+
+### Before you start
+
+- **Open an issue first** for anything beyond a small fix. It's cheaper to
+  disagree about an approach in an issue than in a finished PR.
+- **Check the design doc.** Its decisions table is deliberately hard to
+  change. Reopening a decision is allowed — it's happened several times —
+  but the argument needs to be explicit, and the doc gets updated in the
+  same PR as the code.
+- **Look for a working note.** `docs/working/` often already contains the
+  measurements or dead ends relevant to what you're about to do.
+
+### Branch and commit
+
+`main` is protected: it takes no direct pushes, and merges require a pull
+request with green CI. Work on a branch.
+
+Branch names follow the existing history — a type prefix, then a short
+slug, optionally with the issue number:
+
+```
+feat/62-poll-control-unattended-write
+fix/68-69-swd-and-join-test-guards
+tooling/verify-what-the-rig-reports
+docs/hardware-pinout
+```
+
+Commit messages: a short imperative subject line, then a body explaining
+*why* rather than *what*. Reference issues with `#NN`. The existing log is
+a good guide — it favours explanation over ceremony, and there's no
+enforced format beyond that.
+
+### Open the PR
+
+The [PR template](.github/pull_request_template.md) asks for four things.
+None is bureaucratic:
+
+1. **What and why**, with the issue linked.
+2. **Design-doc reference** — which decision or note this implements, and
+   whether it changes one.
+3. **Testing** — including *bench* evidence for anything touching hardware.
+   A compile is not verification. Paste the RTT/serial output, the Z2M
+   behaviour, or the measured current.
+4. **Cluster-list impact** — if the Zigbee endpoint's cluster list changed,
+   the Z2M converter must change with it, and every paired device needs a
+   remove-and-re-pair. This has to be flagged loudly; a silent cluster
+   change strands existing installs.
+
+Keep PRs small and single-purpose. Several small PRs that each do one thing
+review far better than one that does five.
+
+### What CI runs
+
+Every PR gets:
+
+| Check | What it does | Blocks merge |
+|---|---|---|
+| `host-tests` | Pure-logic unit tests | Yes |
+| `tooling-tests` | Shell tooling regression tests | Yes |
+| `shellcheck` | Lints `tools/*.sh` at `warning` severity | Yes |
+| `firmware-build` | Full Zephyr build for both board variants | No (advisory) |
+
+The firmware build is advisory because it depends on a large external SDK
+fetch that can fail for reasons unrelated to your change. Don't ignore it
+when it goes red — check whether it's your change or the network.
+
+It also publishes UF2 and hex artifacts for both board variants, which is
+the easiest way to test a PR's firmware without a local toolchain.
+
+### Review
+
+The maintainer reviews. Expect questions about power cost and about what
+was verified on hardware — those are the two areas where this project's
+bugs have historically hidden. Resolve review conversations before merging;
+the ruleset requires it.
+
 ---
 
 ## Prerequisites
@@ -57,11 +145,12 @@ Point at the `seeed-studio-zigbee-energy-meter/` folder (the one containing
 ### 5. Create a build configuration and build
 
 - On the application, click *Add Build Configuration*
-- **Board target**: `xiao_ble/nrf52840/sense` (the XIAO nRF52840 board this
-  project targets is the Sense variant — identifiable by the onboard IMU
-  and PDM microphone visible on the top side, and by the `XIAO-SENSE`
-  volume that mounts in bootloader mode). For a plain XIAO nRF52840 use
-  `xiao_ble/nrf52840`.
+- **Board target**: `xiao_ble/nrf52840/sense` — the Sense variant,
+  identifiable by the onboard IMU and PDM microphone on the top side, and by
+  the `XIAO-SENSE` volume that mounts in bootloader mode. This is currently
+  the **only** target that builds; the plain `xiao_ble/nrf52840` fails at
+  devicetree because `app.overlay` references Sense-only IMU node labels
+  ([#75](https://github.com/kwood1992/nRF52840-power-meter/issues/75)).
 - **⚠️ Uncheck "Use sysbuild"** — see the Build Gotchas section below.
   Leaving this on will produce firmware that flashes cleanly but silently
   refuses to boot.
@@ -168,9 +257,18 @@ print(f'writes to 0x{target:08x}, initial SP=0x{sp:08x}, reset handler=0x{reset:
 EOF
 ```
 
-Reset handler must be in the range `0x00027001`–`0x0002FFFF` (Thumb bit set,
-inside the app slot). Anything under `0x00027000` means the linker didn't
-apply the flash offset — you've hit the sysbuild bug again.
+Reset handler must land inside the app slot: above `0x00027000` (the MBR +
+SoftDevice region) and below `0x000F4000` (where the Adafruit UF2 bootloader
+starts). The low bit is the Thumb bit and will be 1.
+
+Anything under `0x00027000` means the linker didn't apply the flash offset —
+you've hit the sysbuild bug again.
+
+> An earlier version of this note gave the upper bound as `0x0002FFFF`. That
+> was written when the application was a walking skeleton barely 36 KB long;
+> the app has since grown past it, so that bound now rejects perfectly good
+> firmware. `firmware.yml` runs this same check in CI against the real slot
+> bounds.
 
 ## Alternative: self-contained west workspace
 
@@ -235,33 +333,109 @@ section if you're happy with the manual drag flow.
 
 ---
 
-## Running the host tests
+## Testing
 
-The pure-logic modules build and run with any C compiler — no Zephyr toolchain
-required. Fast local iteration for anything under `src/pulse_accumulator.*` and
-future host-testable modules.
+Three suites. The first two run in CI and gate merges; the third is you and
+a board.
+
+### 1. Host unit tests — pure logic
+
+The pure-logic modules build and run with any C compiler. No Zephyr
+toolchain, no hardware, about a second to run.
 
 ```bash
-cd seeed-studio-zigbee-energy-meter/tests
-make test
+make -C seeed-studio-zigbee-energy-meter/tests test
 ```
 
-All host tests must be green before opening a PR that touches host-testable
-code.
+Covers the pulse accumulator, persistence policy, button classification and
+routing, metering scale, report gating, LED priority, calibration bounds,
+and battery-level mapping.
+
+Adding a module? If it can be tested this way, it must be — add it to
+`tests/Makefile` alongside the others.
+
+### 2. Tooling tests — the bench scripts
+
+The shell tooling has its own regression suite. `ssh`, `scp` and `sleep` are
+stubbed and the remote state is faked, so the real decision logic runs
+against canned inputs with no Pi, no hardware, and no network.
+
+```bash
+./tools/tests/test-join-logic.sh ./tools/test-join.sh
+./tools/tests/test-swd-guards.sh ./tools
+./tools/tests/test-por-verify.sh ./tools/xiao-por.sh
+```
+
+These exist for one specific class of bug: **tooling that reports success
+while the underlying state is wrong.** A failed Z2M poll counted as proof
+the device hadn't interviewed yet; a wedged OpenOCD reported as "bus
+released"; a power-on-reset that never cleared the debug latch reported as
+done. Each produces a confident green result that then silently poisons a
+bench measurement — the most expensive failure on this rig, because the
+number looks plausible.
+
+Run them if you change anything they cover. They're seeded with real
+measured values, so they encode what the rig actually does rather than what
+it should do in theory.
+
+Shell changes should also pass the linter CI runs:
+
+```bash
+shellcheck -S warning tools/*.sh tools/tests/*.sh
+```
+
+### 3. Bench verification — hardware paths
+
+LPCOMP, PPI, the radio, USB, GPIO and NVS cannot be unit-tested. They get
+verified on a board, and the PR says what was observed.
+
+Useful entry points:
+
+- `./tools/test-join.sh` — full remove/factory-reset/re-interview cycle with
+  a PASS/FAIL result, and `EXPECT_CLUSTERS` to assert the advertised cluster
+  list
+- `./tools/xiao-pulse.sh` and friends — inject synthetic pulses on D7
+- `./tools/measure-power.sh` — current trace annotated with Z2M events
+- `./tools/rtt-tail.sh` — firmware log over SWD when USB is unplugged
+
+See [tools/README.md](tools/README.md) for the full set, and
+[docs/hardware.md](docs/hardware.md#bench-testing-without-a-meter) for the
+D7 injection path.
+
+> Two measurement traps worth knowing before you quote a number: holding D7
+> low adds ~0.24 mA through the pin's pull-up (subtract a duty-matched
+> control), and an LED torch's PWM flicker causes 3–4× pulse overcounting.
 
 ---
 
 ## Project rules
 
-- **TDD for pure logic** — host-testable modules are driven test-first,
-  one behaviour per cycle (see the design doc's *Testing* section)
-- **Hardware paths** (LPCOMP, PPI, radio, USB, GPIO) — bench-verified;
-  unit tests not required
-- **Small, single-purpose PRs** — link the design-doc section or open
-  working-note the PR implements
+- **TDD for pure logic** — host-testable modules are driven test-first, one
+  behaviour per cycle (see the design doc's *Testing* section)
+- **Hardware paths** (LPCOMP, PPI, radio, USB, GPIO) — bench-verified; unit
+  tests not required, bench evidence in the PR is
+- **Power cost is a review criterion** — the device targets multi-year AAA
+  life. Anything that adds a wake, holds a peripheral enabled, or keeps
+  HFCLK running needs justifying. Several past bugs were a peripheral left
+  enabled costing ~1.5 mA.
+- **Small, single-purpose PRs** — link the design-doc section or working
+  note the PR implements
+- **The converter moves with the firmware** — the Z2M external converter in
+  `external-converters/` is half the device interface. A cluster or
+  attribute change that lands without it produces a device that pairs and
+  then exposes nothing useful.
 
-## Issues and PRs
+## Reporting bugs
 
-- Issues and PRs: <https://github.com/kwood1992/nRF52840-power-meter>
-- For bug reports, include: board revision, NCS version, `west build` output
-  (or full VS Code build log), and the serial output leading up to the failure.
+Use the [issue templates](https://github.com/kwood1992/nRF52840-power-meter/issues/new/choose).
+For firmware bugs, include the board variant, NCS version, how the board is
+powered, the build output, and the serial or RTT log leading up to the
+failure.
+
+Two things that look like bugs but usually aren't:
+
+- **Board flashes cleanly then does nothing** — almost always the sysbuild
+  linker bug above, not a brick.
+- **Z2M shows a stale cluster list or won't re-interview** — Z2M serves that
+  data from its own database. Remove and re-pair; a device-side factory
+  reset doesn't invalidate it.

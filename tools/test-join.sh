@@ -111,7 +111,7 @@ HEX="${UF2%.uf2}.hex"
 # flash-swd.sh's #68 pre-flight guard ("another openocd already holds the
 # SWD bus"), which is otherwise swallowed and leaves the operator staring
 # at a bare "all enabled flash paths failed".
-FLASH_LOG="$(mktemp -t test-join-flash)"
+FLASH_LOG="$(mktemp "${TMPDIR:-/tmp}/test-join-flash.XXXXXX")"
 trap 'rm -f "$FLASH_LOG"' EXIT
 
 emit_flash_log() {
@@ -229,6 +229,7 @@ else:
 # The remove is idempotent, so retrying is free; what must NOT happen is
 # proceeding on an unverified assumption, which is the #69 false PASS.
 remove_and_verify() {
+    # shellcheck disable=SC2088  # tilde is expanded by the Pi's login shell, not locally
     if ! ssh "$PI_ALIAS" "~/z2m-cli remove $XIAO_IEEE" >/dev/null 2>&1; then
         log "     warning: remove command exited non-zero (still verifying)"
     fi
@@ -267,10 +268,12 @@ log "     confirmed gone from Z2M's device list"
 
 # -- 4. permit_join ON *before* the factory reset --
 log "4/6 permit_join true (must precede the reset — coordinator needs to accept the auto-steer)..."
+# shellcheck disable=SC2088  # tilde is expanded by the Pi's login shell, not locally
 ssh "$PI_ALIAS" '~/z2m-cli permit-join true' >/dev/null
 
 # -- 5. factory reset (device reboots → FIRST_START → default handler auto-steers) --
 log "5/6 factory reset (long-press ~4 s)..."
+# shellcheck disable=SC2088  # tilde is expanded by the Pi's login shell, not locally
 ssh "$PI_ALIAS" '~/xiao-long-press.sh'
 
 # -- 6. watch for the interview to complete --
@@ -362,6 +365,7 @@ else:
 done
 
 # Disable permit_join no matter the outcome
+# shellcheck disable=SC2088  # tilde is expanded by the Pi's login shell, not locally
 ssh "$PI_ALIAS" '~/z2m-cli permit-join false' >/dev/null 2>&1 || true
 
 if [ -z "$OUTCOME" ]; then

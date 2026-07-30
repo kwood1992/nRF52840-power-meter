@@ -9,7 +9,11 @@
 set -u
 
 SCRIPT_UNDER_TEST="${1:?usage: run-tests.sh /path/to/test-join.sh}"
-WORK="$(mktemp -d -t test-join-tests)"
+# Portable mktemp: BSD/macOS accepts `-d -t prefix`, but GNU coreutils
+# treats the argument as a TEMPLATE and fails without trailing X's —
+# leaving WORK empty, so every path below resolved against / and the
+# suite failed on Linux only. Keep the explicit template form.
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/test-join-tests.XXXXXX")" || exit 1
 trap 'rm -rf "$WORK"' EXIT
 
 FAKE_REPO="$WORK/repo"

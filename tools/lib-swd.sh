@@ -1,5 +1,9 @@
+# shellcheck shell=bash
+#
 # Shared SWD-bus helpers for the Pi rig. Sourced by tools/flash-swd.sh and
 # tools/rtt-tail.sh — not executable on its own, no shebang on purpose.
+# The directive above names the dialect for shellcheck, which would
+# otherwise have no shebang to infer it from (SC2148).
 #
 # Why this file exists (issue #68):
 #   Both scripts drive openocd over the same two SWD wires, and a second
@@ -61,14 +65,14 @@ pi_openocd_manual_clear_advice() {
 # Returns 0 when the bus is provably free, 1 otherwise. Retries because
 # openocd takes a moment to unwind after accepting `shutdown`.
 pi_release_swd_bus() {
-    local n i
+    local n
     n="$(pi_openocd_count)"
     if [ "$n" -eq 0 ]; then
         return 0
     fi
 
     pi_stop_openocd
-    for i in 1 2 3 4 5 6; do
+    for _ in 1 2 3 4 5 6; do
         sleep 0.5
         n="$(pi_openocd_count)"
         if [ "$n" -eq 0 ]; then

@@ -48,6 +48,7 @@ fi
 echo "flashing $HEX ($(du -h "$HEX" | cut -f1))"
 
 echo "-> triggering bootloader via Pi..."
+# shellcheck disable=SC2088  # tilde is expanded by the Pi's login shell, not locally
 if ! ssh "$PI_ALIAS" '~/xiao-bootloader.sh' > /dev/null; then
     echo "error: could not reach $PI_ALIAS or ~/xiao-bootloader.sh failed" >&2
     echo "hint: try 'ssh $PI_ALIAS uptime' to check connectivity" >&2

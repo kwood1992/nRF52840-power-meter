@@ -1,0 +1,86 @@
+name: Bug report
+description: Something in the firmware, tooling, or Z2M integration misbehaves
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing, please check the two failure modes that look like
+        bugs but aren't:
+
+        - **Board flashes fine but does nothing** — almost always the NCS
+          sysbuild linker bug. See
+          [CONTRIBUTING → Build gotchas](../blob/main/CONTRIBUTING.md#build-gotchas).
+        - **Z2M shows stale clusters / a device that won't re-interview** —
+          Z2M serves cluster data from its own database. Remove and re-pair
+          the device; a device-side factory reset is not enough.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you expected, and what you got instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Build with ...
+        2. Flash via ...
+        3. Observe ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: board
+    attributes:
+      label: Board variant
+      options:
+        - XIAO nRF52840 Sense (xiao_ble/nrf52840/sense)
+        - XIAO nRF52840 plain (xiao_ble/nrf52840)
+        - Other / not sure
+    validations:
+      required: true
+
+  - type: input
+    id: ncs-version
+    attributes:
+      label: NCS version
+      description: Should be v2.9.2 — anything else is itself worth reporting.
+      value: v2.9.2
+    validations:
+      required: true
+
+  - type: dropdown
+    id: power
+    attributes:
+      label: How is the board powered?
+      description: Several symptoms differ between USB and battery.
+      options:
+        - USB
+        - 2xAAA battery pack
+        - External bench supply / Pi 3V3
+        - Not applicable
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: >
+        Serial (CDC-ACM) or RTT output leading up to the failure, and the
+        build log if it's a build problem. Z2M logs if it's a pairing or
+        reporting problem.
+      render: shell
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else
+      description: >
+        Sensor wiring, load resistor value, imp/kWh setting, coordinator
+        model — whatever might be relevant.

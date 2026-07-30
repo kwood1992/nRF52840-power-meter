@@ -1,0 +1,47 @@
+name: Feature request
+description: Propose a change in behaviour or a new capability
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: >
+        What isn't possible today, and why that matters. Describe the
+        situation rather than the solution.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+    validations:
+      required: true
+
+  - type: dropdown
+    id: design-impact
+    attributes:
+      label: Does this change a locked design decision?
+      description: >
+        The decisions table in
+        seeed-studio-zigbee-energy-meter/docs/seeed-studio-zigbee-energy-meter.md
+        is deliberately hard to change. Reopening one is allowed, but it
+        needs the argument spelled out.
+      options:
+        - "No — fits within the existing decisions"
+        - "Yes — reopens a locked decision (explain below)"
+        - "Not sure"
+    validations:
+      required: true
+
+  - type: textarea
+    id: power-cost
+    attributes:
+      label: Power cost
+      description: >
+        The device targets multi-year AAA life, so anything that adds a wake,
+        holds a peripheral enabled, or keeps HFCLK running needs justifying.
+        Write "none expected" if it's host-side, tooling, or docs.
+    validations:
+      required: true

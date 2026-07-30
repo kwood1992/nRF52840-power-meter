@@ -1,0 +1,7 @@
+# Default owner for everything in the repo.
+#
+# This only auto-requests review — the main ruleset does not require code-owner
+# approval, so it never blocks the maintainer's own PRs. Its value is making
+# review routing explicit once other contributors show up.
+
+*       @kwood1992

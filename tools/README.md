@@ -75,7 +75,7 @@ Don't build the USB-dev workflow with `rtt.conf` — it turns off CDC-ACM consol
 
   The flat form compares the union of input clusters and additionally requires exactly one endpoint — true today (`APP_ENDPOINT` 10, `ZBOSS_DECLARE_DEVICE_CTX_1_EP`). The `ep:clusters` form pins each cluster to its endpoint; use it if the firmware grows a second endpoint, since a cluster *moving* endpoints leaves the union unchanged but breaks Z2M/HA bindings.
 
-  `genPowerCfg` joined the list when battery reporting landed (#8). A cluster-list change also needs the Z2M-side external converter updated in step with it — see `seeed-studio-zigbee-energy-meter/z2m/`.
+  `genPowerCfg` joined the list when battery reporting landed (#8). A cluster-list change also needs the Z2M-side external converter updated in step with it — see [`external-converters/xiao-power-meter.js`](../external-converters/xiao-power-meter.js).
 - `xiao-pulse.sh` / `xiao-pulse-burst.sh` — drive the D7 pulse-simulator GPIO on the Pi to feed synthetic pulses into the meter. Shell + `pinctrl`, so per-edge timing bottoms out at 5–15 ms.
 - `xiao-pulse-us.sh` — µs-precision variant for #59's min-pulse-width filter AC test (threshold ± 100 µs boundary discrimination). Writes BCM `GPSET0` / `GPCLR0` directly through `/dev/gpiomem` and busy-waits on `perf_counter_ns`, so sub-millisecond pulse widths are actually accurate. No daemon dependency — user in the `gpio` group runs it without sudo.
 
