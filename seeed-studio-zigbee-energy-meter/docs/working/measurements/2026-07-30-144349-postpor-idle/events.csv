@@ -1,0 +1,9 @@
+# z2m-events started=2026-07-30T14:43:50+1000 started_wallclock_ms=1785386630451
+# ieee=0xf4ce361b0656e80e duration_s=365.0
+# note=label=postpor-idle fw=b958171
+wallclock_ms,topic,field,value
+1785386764094,zigbee2mqtt/0xf4ce361b0656e80e,energy,3504.04
+1785386764094,zigbee2mqtt/0xf4ce361b0656e80e,imp_per_kwh,800
+1785386764094,zigbee2mqtt/0xf4ce361b0656e80e,linkquality,81
+1785386764094,zigbee2mqtt/0xf4ce361b0656e80e,min_pulse_width_us,None
+1785386764094,zigbee2mqtt/0xf4ce361b0656e80e,power,0

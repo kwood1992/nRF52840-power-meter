@@ -1,0 +1,4 @@
+# z2m-events started=2026-07-30T14:52:09+1000 started_wallclock_ms=1785387129994
+# ieee=0xf4ce361b0656e80e duration_s=155.0
+# note=label=pulse-burst fw=b958171+dirty
+wallclock_ms,topic,field,value
