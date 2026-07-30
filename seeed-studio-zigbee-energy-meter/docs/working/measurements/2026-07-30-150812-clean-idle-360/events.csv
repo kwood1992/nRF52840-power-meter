@@ -1,0 +1,14 @@
+# z2m-events started=2026-07-30T15:08:13+1000 started_wallclock_ms=1785388093128
+# ieee=0xf4ce361b0656e80e duration_s=365.0
+# note=label=clean-idle-360 fw=b958171+dirty
+wallclock_ms,topic,field,value
+1785388373096,zigbee2mqtt/0xf4ce361b0656e80e,energy,3504.1
+1785388373096,zigbee2mqtt/0xf4ce361b0656e80e,imp_per_kwh,800
+1785388373096,zigbee2mqtt/0xf4ce361b0656e80e,linkquality,63
+1785388373096,zigbee2mqtt/0xf4ce361b0656e80e,min_pulse_width_us,None
+1785388373096,zigbee2mqtt/0xf4ce361b0656e80e,power,0
+1785388389713,zigbee2mqtt/0xf4ce361b0656e80e,energy,3504.1
+1785388389713,zigbee2mqtt/0xf4ce361b0656e80e,imp_per_kwh,800
+1785388389713,zigbee2mqtt/0xf4ce361b0656e80e,linkquality,63
+1785388389713,zigbee2mqtt/0xf4ce361b0656e80e,min_pulse_width_us,None
+1785388389713,zigbee2mqtt/0xf4ce361b0656e80e,power,0

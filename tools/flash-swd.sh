@@ -46,6 +46,13 @@ HEX="${1:-$REPO_ROOT/seeed-studio-zigbee-energy-meter/build/zephyr/zephyr.hex}"
 PI_ALIAS="rpi-xiao"
 PI_TMP_HEX="/tmp/zephyr.hex"
 MIN_APP_ADDR=$((0x27000))
+OPENOCD_TELNET_PORT=4444
+
+# Shared SWD-bus detection (issue #68), sourced so this script and
+# rtt-tail.sh cannot drift apart on the one check that keeps two
+# openocds off the same wires.
+# shellcheck source=tools/lib-swd.sh
+source "$REPO_ROOT/tools/lib-swd.sh"
 
 if [ ! -f "$HEX" ]; then
     echo "error: hex not found at $HEX" >&2
@@ -107,19 +114,14 @@ fi
 # because the device comes back running nothing. openocd's only hint is a
 # "couldn't bind gdb to socket on port 3333" line scrolled off the top.
 #
-# So check before we touch flash, and refuse rather than guess. Detection is
-# via the telnet control port, which is a live openocd's tell.
-OPENOCD_TELNET_PORT=4444
-if ssh "$PI_ALIAS" "nc -z 127.0.0.1 $OPENOCD_TELNET_PORT >/dev/null 2>&1" >/dev/null 2>&1; then
-    echo "error: another openocd already holds the SWD bus on $PI_ALIAS." >&2
-    echo "  Flashing now risks a partially-erased app slot (see issue #68)." >&2
-    echo "" >&2
-    echo "  Almost always a leaked tools/rtt-tail.sh. Clear it with:" >&2
-    echo "    ./tools/rtt-tail.sh --stop" >&2
-    echo "" >&2
-    echo "  If that reports the port still listening, it's wedged — then:" >&2
-    echo "    ssh $PI_ALIAS 'sudo pkill -f openocd'" >&2
-    echo "  (needs your password; passwordless sudo there is openocd-only)" >&2
+# So check before we touch flash, and refuse rather than guess.
+#
+# Detection counts openocd PROCESSES rather than probing the telnet
+# control port. The #68 instance had LOST the port bind ("couldn't bind
+# gdb to socket on port 3333") while still driving the bus, so a port
+# probe would have returned a clean bill of health for the exact state
+# this guard exists to catch. See tools/lib-swd.sh.
+if ! pi_assert_swd_bus_free; then
     exit 1
 fi
 # ---- end pre-flight -------------------------------------------------------
