@@ -5,7 +5,11 @@
 set -u
 
 POR="${1:?usage: run-por-tests.sh /path/to/xiao-por.sh}"
-WORK="$(mktemp -d -t por-tests)"; trap 'rm -rf "$WORK"' EXIT
+# Portable mktemp: BSD/macOS accepts `-d -t prefix`, but GNU coreutils
+# treats the argument as a TEMPLATE and fails without trailing X's —
+# leaving WORK empty, so every path below resolved against / and the
+# suite failed on Linux only. Keep the explicit template form.
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/por-tests.XXXXXX")" || exit 1; trap 'rm -rf "$WORK"' EXIT
 REPO="$WORK/repo"; FAKEBIN="$WORK/bin"
 mkdir -p "$REPO/tools" "$FAKEBIN"
 cp "$POR" "$REPO/tools/xiao-por.sh"; chmod +x "$REPO/tools/xiao-por.sh"

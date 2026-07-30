@@ -111,7 +111,7 @@ HEX="${UF2%.uf2}.hex"
 # flash-swd.sh's #68 pre-flight guard ("another openocd already holds the
 # SWD bus"), which is otherwise swallowed and leaves the operator staring
 # at a bare "all enabled flash paths failed".
-FLASH_LOG="$(mktemp -t test-join-flash)"
+FLASH_LOG="$(mktemp "${TMPDIR:-/tmp}/test-join-flash.XXXXXX")"
 trap 'rm -f "$FLASH_LOG"' EXIT
 
 emit_flash_log() {
