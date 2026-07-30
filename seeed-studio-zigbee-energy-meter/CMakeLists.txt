@@ -6,6 +6,27 @@ cmake_minimum_required(VERSION 3.20.0)
 # xiao_ble/nrf52840/sense skip it), so we set it explicitly.
 list(APPEND EXTRA_DTC_OVERLAY_FILE "${CMAKE_CURRENT_LIST_DIR}/app.overlay")
 
+# Sense-only devicetree fragment. app.overlay is loaded for every target,
+# so anything referencing nodes that exist only on the Sense variant (the
+# LSM6DS3TR-C IMU and its regulator) has to be split out — otherwise the
+# plain xiao_ble/nrf52840 build dies at DTS parse time on an undefined
+# node label. See #75.
+#
+# Appended explicitly rather than named boards/xiao_ble_nrf52840_sense.overlay
+# and left to auto-discovery, for the same reason app.overlay is force-loaded
+# above: discovery has not been reliable here across NCS versions and
+# board-qualified targets, and silently skipping this one would leave the IMU
+# regulator drawing ~0.6-1.7 mA with a clean build log. The firmware-build CI
+# job asserts against the generated devicetree that these nodes are actually
+# disabled on a Sense build.
+#
+# BOARD is a cache variable set from the command line (-DBOARD=..., which is
+# what `west build -b` passes), so it is already available here, before
+# find_package(Zephyr).
+if(BOARD MATCHES "sense")
+	list(APPEND EXTRA_DTC_OVERLAY_FILE "${CMAKE_CURRENT_LIST_DIR}/overlays/sense.overlay")
+endif()
+
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(zigbee_energy_meter LANGUAGES C)
 

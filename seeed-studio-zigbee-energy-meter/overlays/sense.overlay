@@ -1,0 +1,53 @@
+/*
+ * Devicetree fragment for the XIAO nRF52840 *Sense* only.
+ *
+ * These nodes exist solely on the Sense variant's board DT. Referencing
+ * them from app.overlay broke the plain xiao_ble/nrf52840 build outright:
+ *
+ *     app.overlay:152: parse error: undefined node label 'lsm6ds3tr_c'
+ *
+ * so the parts list in the design-doc BOM (which specifies the plain
+ * board) bought hardware the firmware refused to compile for. See #75.
+ *
+ * This file is NOT picked up by Zephyr's boards/<target>.overlay
+ * auto-discovery — that is deliberate. It lives under overlays/ and is
+ * appended explicitly by CMakeLists.txt when the board target ends in
+ * "sense". Auto-discovery has already proved unreliable in this project
+ * across NCS versions and board-qualified targets (it is why app.overlay
+ * itself is force-loaded), and a silently-skipped overlay here would leave
+ * the IMU regulator powered at ~0.6-1.7 mA with nothing in the build
+ * output to say so. The firmware-build CI job asserts, against the
+ * generated devicetree, that all three nodes really are disabled on a
+ * Sense build — see .github/workflows/firmware.yml.
+ *
+ * ---
+ *
+ * Battery-mode current fix — kill the XIAO Sense's IMU regulator so the
+ * LSM6DS3TR-C doesn't draw its ~0.6-1.7 mA normal-mode quiescent current.
+ *
+ * Root cause: the SENSE variant's board DT declares a fixed regulator on
+ * P1.08 with `regulator-boot-on`, which Zephyr's regulator subsystem
+ * enables at boot. The IMU sensor driver then fails to init (our overlay
+ * doesn't use its I2C bus) but the regulator stays ON — sensor keeps
+ * drawing current until an explicit disable.
+ *
+ * We don't use the IMU in this app. Disable both the sensor node (so no
+ * driver instance is created) and the regulator node (so the P1.08 enable
+ * pin doesn't drive HIGH at boot).
+ *
+ * The regulator node has no explicit label in the upstream board DTS —
+ * refer to it by path via &{/lsm6ds3tr-c-en}. Same for the microphone
+ * regulator on P1.10 (msm261d3526hicpm-c-en) which is off by default but
+ * belt-and-braces disable is cheap.
+ */
+&lsm6ds3tr_c {
+	status = "disabled";
+};
+
+&{/lsm6ds3tr-c-en} {
+	status = "disabled";
+};
+
+&{/msm261d3526hicpm-c-en} {
+	status = "disabled";
+};
