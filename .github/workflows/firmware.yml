@@ -1,0 +1,136 @@
+name: Firmware build
+
+# Compiles the Zephyr application for both documented board targets using
+# the exact NCS + ncs-zigbee pairing pinned in west.yml.
+#
+# Slow relative to ci.yml: a cold run does a full `west update` (sdk-nrf
+# plus every NCS module, ~2 GB even shallow-cloned) and takes ~20 min.
+# Cached runs are ~5 min. The cache key is the hash of west.yml, so it
+# invalidates exactly when the pinned revisions change.
+#
+# The toolchain image sets BASH_ENV=/opt/non-interactive-setup.sh, which
+# bash sources for non-interactive shells — so `west`, CMake, ninja and the
+# Zephyr SDK are already on PATH inside every `run:` step. Don't add manual
+# toolchain sourcing; it will fight the image.
+
+on:
+  pull_request:
+    paths:
+      - 'seeed-studio-zigbee-energy-meter/**'
+      - 'west.yml'
+      - '.github/workflows/firmware.yml'
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: firmware-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  firmware-build:
+    name: firmware-build (${{ matrix.variant }})
+    runs-on: ubuntu-latest
+
+    container:
+      image: ghcr.io/nrfconnect/sdk-nrf-toolchain:v2.9.2
+      options: --user root
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: sense
+            board: xiao_ble/nrf52840/sense
+          - variant: plain
+            board: xiao_ble/nrf52840
+
+    steps:
+      # west.yml declares `self: path: nrf52840-power-meter`, so the repo
+      # must sit at that path for `west init -l` to resolve the manifest.
+      - uses: actions/checkout@v4
+        with:
+          path: nrf52840-power-meter
+
+      # The container runs as root over a checkout owned by another uid;
+      # without this every git call in the west/Zephyr build trips
+      # "detected dubious ownership".
+      - name: Trust the workspace
+        run: git config --global --add safe.directory '*'
+
+      - name: Cache west workspace
+        id: west-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            .west
+            bootloader
+            modules
+            nrf
+            nrfxlib
+            zephyr
+            tools
+          key: west-v2.9.2-${{ hashFiles('nrf52840-power-meter/west.yml') }}
+
+      - name: Initialise west workspace
+        if: steps.west-cache.outputs.cache-hit != 'true'
+        run: west init -l nrf52840-power-meter
+
+      # --narrow plus depth=1 keeps this to the revisions actually pinned
+      # rather than full history for every NCS module.
+      - name: west update
+        if: steps.west-cache.outputs.cache-hit != 'true'
+        run: west update --narrow -o=--depth=1
+
+      - name: west zephyr-export
+        run: west zephyr-export
+
+      # --no-sysbuild is mandatory, not a preference: NCS 2.9.x sysbuild
+      # silently ignores CONFIG_FLASH_LOAD_OFFSET when MCUboot is off, and
+      # links the app at VMA 0x0. It builds and flashes cleanly, then
+      # hard-faults on boot. See CONTRIBUTING.md "Build gotchas".
+      - name: Build
+        working-directory: nrf52840-power-meter/seeed-studio-zigbee-energy-meter
+        run: west build -b ${{ matrix.board }} --no-sysbuild -p always
+
+      # Guards the same sysbuild bug from the other direction: if the app
+      # ever links low again, the reset handler drops below 0x27000 and
+      # this fails loudly instead of shipping a brick.
+      - name: Verify UF2 vector table lands in the app slot
+        working-directory: nrf52840-power-meter/seeed-studio-zigbee-energy-meter
+        run: |
+          python3 - <<'EOF'
+          import struct, sys
+
+          with open('build/zephyr/zephyr.uf2', 'rb') as f:
+              d = f.read()
+
+          target = struct.unpack('<I', d[12:16])[0]
+          sp     = struct.unpack('<I', d[32:36])[0]
+          reset  = struct.unpack('<I', d[36:40])[0]
+
+          print(f'writes to 0x{target:08x}')
+          print(f'initial SP    0x{sp:08x}')
+          print(f'reset handler 0x{reset:08x}')
+
+          if not (0x00027001 <= reset <= 0x0002FFFF):
+              sys.exit(
+                  f'FAIL: reset handler 0x{reset:08x} is outside the app slot '
+                  '(0x00027001-0x0002FFFF). The flash offset was not applied — '
+                  'this firmware would hard-fault on boot. Check --no-sysbuild.'
+              )
+
+          print('OK: reset handler is inside the app slot')
+          EOF
+
+      - name: Upload firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: zigbee-energy-meter-${{ matrix.variant }}
+          path: |
+            nrf52840-power-meter/seeed-studio-zigbee-energy-meter/build/zephyr/zephyr.uf2
+            nrf52840-power-meter/seeed-studio-zigbee-energy-meter/build/zephyr/zephyr.hex
+          if-no-files-found: error

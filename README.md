@@ -1,29 +1,119 @@
 # nRF52840 Power Meter
 
-Firmware for a battery-powered Zigbee sensor that watches the pulse LED on a
-household electricity meter, counts the flashes, and reports cumulative energy
-(kWh) to Home Assistant via Zigbee2MQTT every 5 minutes.
+A battery-powered Zigbee sensor that watches the pulse LED on a household
+electricity meter, counts the flashes, and reports cumulative energy (kWh)
+to Home Assistant via Zigbee2MQTT.
 
-Built on the **Seeed XIAO nRF52840** with the nRF Connect SDK (Zephyr) and the
-ncs-zigbee add-on. The pulse pipeline runs entirely in hardware peripherals
-(LPCOMP → PPI → TIMER) during System-ON sleep, targeting multi-year AAA
-battery life.
+Built on the **Seeed XIAO nRF52840** with the nRF Connect SDK (Zephyr) and
+the ncs-zigbee R23 add-on. The pulse pipeline runs entirely in hardware
+peripherals (LPCOMP → PPI → TIMER) during System-ON sleep, so the CPU never
+wakes to count a pulse.
+
+---
+
+## What it does
+
+- Counts meter pulses in hardware while the CPU sleeps
+- Reports **cumulative energy** every 5 minutes on the ZCL Metering cluster
+  (0x0702), which Home Assistant's Energy Dashboard consumes directly as kWh
+- Reports **battery voltage and percentage** on the Power Configuration
+  cluster (0x0001)
+- Survives reboots and battery changes — the accumulator is persisted to NVS
+- Calibrates to your meter's imp/kWh over the air, no reflash
+- Rejects noise with a hardware minimum-pulse-width filter
+- Joins, wakes, and factory-resets from a single button
+
+It deliberately does **not** publish instantaneous power. A pulse counter
+can't produce an honest watts figure — between two pulses it only knows "no
+pulse yet", so any W value reads zero under light load and spikes when a
+pulse lands. Derive power from the kWh series with a Home Assistant
+derivative helper instead.
 
 ## Status
 
-Early development. Pure-logic core (pulse accumulator with 32-bit HW-wrap and
-48-bit overflow handling) is done and host-tested. Zephyr walking-skeleton
-compiles and boots to a USB CDC-ACM heartbeat log. Zigbee stack, pulse-source
-wiring, and low-power paths are next.
+Working end-to-end on the bench: the device pairs with Zigbee2MQTT, counts
+pulses, reports energy and battery, persists across resets, and accepts
+calibration writes.
 
-See [`seeed-studio-zigbee-energy-meter/docs/working/`](seeed-studio-zigbee-energy-meter/docs/working/)
-for current in-flight status.
+**Battery-life validation is still open** ([#8](https://github.com/kwood1992/nRF52840-power-meter/issues/8)).
+The design targets multi-year AAA life and the sleep-current work is done,
+but a long-run measurement on cells hasn't been completed — so treat the
+battery-life figure as a design target, not a measured result. Current
+in-flight notes live in
+[`docs/working/`](seeed-studio-zigbee-energy-meter/docs/working/).
+
+---
+
+## Build your own
+
+| Step | Where |
+|---|---|
+| 1. Buy the parts | [Design doc → BOM](seeed-studio-zigbee-energy-meter/docs/seeed-studio-zigbee-energy-meter.md#hardware--bom-with-au-purchase-links) — with purchase links |
+| 2. Wire it up | **[docs/hardware.md](docs/hardware.md)** — pinout, phototransistor circuit, battery, button |
+| 3. Install the toolchain and build | [CONTRIBUTING.md](CONTRIBUTING.md#recommended-setup-vs-code--nrf-connect-extension-pack) |
+| 4. Flash | Double-tap reset, drag `zephyr.uf2` onto the drive that mounts |
+| 5. Set up Zigbee2MQTT | [Below](#home-assistant--zigbee2mqtt-setup) |
+| 6. Calibrate imp/kWh | [Below](#calibrating-impkwh) |
+
+Prefer not to build the firmware yourself? Every push produces UF2 artifacts
+for both board variants — grab them from the
+[Actions tab](https://github.com/kwood1992/nRF52840-power-meter/actions/workflows/firmware.yml).
+
+> **Two things that will cost you an evening if you skip them.**
+>
+> - **Uncheck "Use sysbuild"** (or pass `--no-sysbuild`). NCS 2.9.x silently
+>   links the app at the wrong address with sysbuild on. The firmware flashes
+>   cleanly and then does absolutely nothing — no LED, no USB, looks bricked.
+>   [Details](CONTRIBUTING.md#build-gotchas).
+> - **Wire the battery to the `3V3` pin, not the `BAT` pads.** The firmware
+>   reads the SoC's internal VDD tap, so cells on `BAT` make battery
+>   percentage read 100% forever. [Details](docs/hardware.md#battery-wiring).
+
+### Quick reference
+
+| Gesture | Effect |
+|---|---|
+| Short press (< 1 s), not joined | Start pairing |
+| Short press (< 1 s), joined | Open a ~30 s window for an attribute write |
+| Long press (> 3 s) | Factory reset |
+| Hold during boot (> 3 s) | Zero the energy accumulator |
+
+LED patterns, fatal flash codes, and the full pin map are in
+[docs/hardware.md](docs/hardware.md).
+
+---
+
+## Repository layout
+
+```
+seeed-studio-zigbee-energy-meter/   Zephyr application
+  src/                              firmware sources
+  tests/                            host-run unit tests (no toolchain needed)
+  docs/                             design doc + working notes
+  *.conf                            build overlays (dev, rtt, diagnostics)
+external-converters/                Zigbee2MQTT external converter
+tools/                              bench scripts (flash, pulse, current, RTT)
+docs/                               hardware and SWD recovery guides
+west.yml                            pinned NCS v2.9.2 + ncs-zigbee v1.3.0
+```
 
 ## Documentation
 
-- **[Design doc](seeed-studio-zigbee-energy-meter/docs/seeed-studio-zigbee-energy-meter.md)** — locked decisions, BOM, firmware structure, testing strategy, and open risks. Read this first.
-- **[Contributing / dev environment setup](CONTRIBUTING.md)** — cross-platform toolchain install, build, flash, and host-test workflow.
-- **[Working notes](seeed-studio-zigbee-energy-meter/docs/working/)** — living status snapshots.
+- **[Hardware guide](docs/hardware.md)** — pinout, sensor circuit, battery
+  wiring, LED and button reference, SWD pads
+- **[Design doc](seeed-studio-zigbee-energy-meter/docs/seeed-studio-zigbee-energy-meter.md)** —
+  locked decisions, BOM, firmware structure, testing strategy, open risks.
+  Read this before proposing architectural changes.
+- **[Contributing](CONTRIBUTING.md)** — toolchain setup, build, flash, tests,
+  and the PR process
+- **[SWD recovery](docs/swd-recovery-jig.md)** — un-bricking a board with any
+  SWD probe, plus the optional one-command flash rig
+- **[Bench tooling](tools/README.md)** — flashing, pulse injection, current
+  measurement, RTT logging
+- **[Working notes](seeed-studio-zigbee-energy-meter/docs/working/)** — living
+  status snapshots and bench results
+
+---
 
 ## Home Assistant / Zigbee2MQTT setup
 
@@ -189,6 +279,13 @@ pulse total keeps growing on its old baseline but Z2M now divides by
 this only matters if you're calibrating against a running meter — do
 the calibration on first install, then leave it alone.
 
+---
+
+## Contributing
+
+Issues and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md)
+for toolchain setup, the test suites, and the PR process.
+
 ## License
 
-[GNU GPL](LICENSE).
+[GNU GPL v3](LICENSE).

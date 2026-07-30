@@ -1,0 +1,12 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Build or setup question
+    url: https://github.com/kwood1992/nRF52840-power-meter/discussions
+    about: >
+      Wiring, toolchain, or Zigbee2MQTT questions. Check docs/hardware.md and
+      CONTRIBUTING.md first — most setup problems are covered there.
+  - name: Board appears dead after flashing
+    url: https://github.com/kwood1992/nRF52840-power-meter/blob/main/docs/swd-recovery-jig.md
+    about: >
+      Read the SWD recovery guide before filing. A board that flashes cleanly
+      then does nothing is usually the sysbuild linker bug, not a brick.

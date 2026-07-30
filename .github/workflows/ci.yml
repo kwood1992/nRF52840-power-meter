@@ -1,0 +1,61 @@
+name: CI
+
+# Fast checks that gate merges to main. Everything here runs without a
+# Zephyr toolchain, without hardware, and without network access to the
+# bench rig — the whole workflow should finish in about a minute.
+#
+# The firmware compile lives in firmware.yml because it needs a 2 GB+ NCS
+# checkout and is far slower.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# A newer push to the same branch makes an in-flight run obsolete.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  host-tests:
+    name: host-tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and run pure-logic unit tests
+        run: make -C seeed-studio-zigbee-energy-meter/tests test
+
+  tooling-tests:
+    name: tooling-tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # These stub ssh/scp/sleep and fake the remote state, so the real
+      # decision logic runs against canned inputs with no Pi in the loop.
+      - name: Join / interview pass-fail logic
+        run: ./tools/tests/test-join-logic.sh ./tools/test-join.sh
+
+      - name: SWD bus guards (two-openocd protection)
+        run: ./tools/tests/test-swd-guards.sh ./tools
+
+      - name: POR classification and retry
+        run: ./tools/tests/test-por-verify.sh ./tools/xiao-por.sh
+
+  shellcheck:
+    name: shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # shellcheck ships on the GitHub-hosted Ubuntu image.
+      # Severity floor is `warning`: style/info notes are advisory here,
+      # warnings and errors are not.
+      - name: Lint bench scripts
+        run: shellcheck -S warning tools/*.sh tools/tests/*.sh
