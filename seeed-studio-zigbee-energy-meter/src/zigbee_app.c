@@ -802,6 +802,22 @@ static void factory_reset_cb(zb_uint8_t param)
 }
 
 /*
+ * Short-press wake (#62). Restarting turbo poll on an already-joined
+ * device only changes the poll cadence — join state, bindings and the
+ * attribute table are all untouched, which is what the acceptance
+ * criteria require. ZBOSS reverts to the long-poll interval when the
+ * window expires, so there's nothing to tear down afterwards.
+ */
+static void wake_turbo_poll_cb(zb_uint8_t param)
+{
+	ARG_UNUSED(param);
+	zb_zdo_pim_start_turbo_poll_continuous(
+		CONFIG_APP_ZIGBEE_WAKE_TURBO_POLL_MS);
+	LOG_INF("ZBOSS thread: wake turbo-poll window open for %d ms",
+		CONFIG_APP_ZIGBEE_WAKE_TURBO_POLL_MS);
+}
+
+/*
  * Trampoline that runs on the ZBOSS thread and does the actual
  * `ZB_ZCL_SET_ATTRIBUTE` call. The publish API packs the pulse total
  * into a scheduler-callback-sized u8 index via a shadow variable —
@@ -917,6 +933,30 @@ void zigbee_app_factory_reset(void)
 bool zigbee_app_is_joined(void)
 {
 	return joined;
+}
+
+void zigbee_app_wake_for_write(void)
+{
+	if (!IS_ENABLED(CONFIG_APP_ZIGBEE_SLEEPY_ED)) {
+		/* Radio is already always-on; downlinks arrive immediately
+		 * and there is no poll cadence to shorten.
+		 */
+		LOG_INF("wake request ignored — not a sleepy ED");
+		return;
+	}
+	if (!joined) {
+		/* zb_zdo_pim_* addresses the parent, and without an
+		 * association there isn't one. The button dispatch routes
+		 * this case to JOIN instead, so reaching here means the
+		 * device dropped its parent between classify and dispatch.
+		 */
+		LOG_WRN("wake request ignored — not joined");
+		return;
+	}
+
+	LOG_INF("wake for write: requesting %d ms turbo-poll window",
+		CONFIG_APP_ZIGBEE_WAKE_TURBO_POLL_MS);
+	ZB_SCHEDULE_APP_CALLBACK(wake_turbo_poll_cb, 0);
 }
 
 void zigbee_app_publish_summation(uint64_t pulse_total)

@@ -43,6 +43,23 @@ void zigbee_app_factory_reset(void);
 bool zigbee_app_is_joined(void);
 
 /*
+ * Re-open a turbo-poll window (CONFIG_APP_ZIGBEE_WAKE_TURBO_POLL_MS)
+ * without touching join state. Called from the button dispatch thread on
+ * a short-press while already joined — see issue #62.
+ *
+ * The point is downlink latency: in steady state the sleepy ED polls its
+ * parent every CONFIG_APP_ZIGBEE_LONG_POLL_INTERVAL_MS (60 s), which is
+ * far past Z2M's ~10 s ZCL write deadline, so writes to imp_per_kwh /
+ * min_pulse_width_us time out. Turbo poll drops the cadence to ~100 ms
+ * for the window, then ZBOSS reverts to the long poll on its own.
+ *
+ * No-op when CONFIG_APP_ZIGBEE_SLEEPY_ED is off (the radio is already
+ * always live) or when not joined (there is no parent to poll — ZBOSS's
+ * PIM would have nowhere to send).
+ */
+void zigbee_app_wake_for_write(void);
+
+/*
  * Update the Metering cluster's `CurrentSummationDelivered` attribute
  * (0x0702 / 0x0000) with the current pulse-accumulator total.
  *

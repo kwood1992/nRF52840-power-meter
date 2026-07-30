@@ -137,21 +137,32 @@ the ZHC precheck.
 ### Sleepy-ED timing gotcha
 
 The device is a sleepy end-device polling its parent every 60 s in
-steady state. A single write from the UI will time out with a
-herdsman `Timeout after 10000ms` error unless the device is inside
-its **post-reboot turbo-poll window** (roughly 30 s after any power-on
-or reset). Practical workflow:
+steady state, while Z2M gives up on a write after 10 s. So any write
+attempted from the UI in steady state times out with a herdsman
+`Timeout after 10000ms` error. Wake the device first:
 
-1. Short-press the device button (triggers a fresh join → turbo-poll
-   window opens).
-2. Send the write within the next ~30 s.
+1. **Short-press the device button.** The white LED acks the press and
+   a ~30 s turbo-poll window opens (~100 ms poll cadence).
+2. Send the write within that window.
 3. Read back to confirm.
 
-Re-flashing over SWD or double-tap-resetting the board has the same
-effect as the button press. During a battery-mode deployment where
-neither is convenient, retrying the write until one lands within a
-poll window is the current workaround. A proper "wake on write" path
-(#TODO — see follow-up issue) is future work.
+The short press is join-state aware: on an **already-joined** device it
+only refreshes the poll window and leaves the network state, bindings
+and attributes untouched. On an **unjoined** device it still starts
+network steering, as before — so pairing is unchanged.
+
+Window length is `CONFIG_APP_ZIGBEE_WAKE_TURBO_POLL_MS` (default 30 s).
+It costs nothing in steady state: turbo poll only runs when you ask for
+it, and ZBOSS reverts to the long-poll interval when the window expires.
+
+Re-flashing over SWD or double-tap-resetting the board also opens a
+window (via the post-join path), but a short press is the cheap option
+since it doesn't disturb the join.
+
+Still unsolved: a write with **no one at the device**. Home Assistant
+automations can't press the button, so scripted calibration remains out
+of reach — that's the Poll Control (0x0020) cluster option in
+[#62](https://github.com/kwood1992/nRF52840-power-meter/issues/62).
 
 ### Changing Divisor mid-life
 

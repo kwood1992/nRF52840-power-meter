@@ -62,6 +62,23 @@ config APP_ZIGBEE_JOIN_TURBO_POLL_MS
 	  margin. Tighten once measurements say the interview always finishes
 	  faster; loosen if a saturated coordinator makes reads slower.
 
+config APP_ZIGBEE_WAKE_TURBO_POLL_MS
+	int "Turbo-poll window opened by a short button press (ms)"
+	default 30000
+	depends on APP_ZIGBEE_SLEEPY_ED
+	help
+	  Length of the turbo-poll window that a short button press opens on
+	  an already-joined device (issue #62). During the window ZBOSS polls
+	  the parent every ~100 ms, so a Z2M write to a runtime-writable
+	  attribute (imp_per_kwh, min_pulse_width_us) reaches the device well
+	  inside Z2M's ~10 s ZCL deadline. In steady state the long poll below
+	  is 60 s, so an unassisted write always times out.
+
+	  Same 30 s default as the post-join window, for the same reason: it
+	  is comfortably longer than a human takes to hit Save in the Z2M UI
+	  after pressing the button, and it costs ~30 s of ~100 ms polling
+	  only when the user asks for it — there is no steady-state cost.
+
 config APP_ZIGBEE_LONG_POLL_INTERVAL_MS
 	int "Long-poll interval after interview window (ms)"
 	default 60000
