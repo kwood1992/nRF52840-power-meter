@@ -48,10 +48,10 @@ hard conflicts that reshaped it:
 
 | Part | Recommended pick | Where to buy (AU first) | ~Price |
 |---|---|---|---|
-| **MCU** | Seeed **XIAO nRF52840** (plain, pre-soldered) — *not* Sense/Plus | [Core Electronics SS102010631](https://core-electronics.com.au/seeed-studio-xiao-nrf52840-pre-soldered-bluetooth-5-0-ble-wireless-iot-microcontroller-board.html) · [Pakronics](https://www.pakronics.com.au/products/seeed-studio-xiao-nrf52840-pre-soldered-ss102010631) · AliExpress: Seeed official store (cheaper, slow ship) | ~$25 AUD |
+| **MCU** | Seeed **XIAO nRF52840** — see the note below on plain vs Sense | [Core Electronics SS102010631](https://core-electronics.com.au/seeed-studio-xiao-nrf52840-pre-soldered-bluetooth-5-0-ble-wireless-iot-microcontroller-board.html) · [Pakronics](https://www.pakronics.com.au/products/seeed-studio-xiao-nrf52840-pre-soldered-ss102010631) · AliExpress: Seeed official store (cheaper, slow ship) | ~$25 AUD |
 | **Phototransistor** | **Vishay TEPT4400** — visible-light, human-eye response (ideal for a red meter LED) | [Little Bird — Photo Transistor Light Sensor](https://littlebirdelectronics.com.au/products/photo-transistor-light-sensor) · [Core Electronics CE09800](https://core-electronics.com.au/phototransistor.html) | ~$1–4 |
 | Load resistor | ~10–100 kΩ (tune for clean LPCOMP swing) | Jaycar/Altronics resistor pack (generic) | ~$1 |
-| **Battery** | 2×AAA — **use the Bambu kit spring terminals** in the printed compartment (leads to BAT pads). *Easier ready-made fallback:* 2×AAA holder w/ switch + JST | Fallback: [Core Electronics — 2×AAA holder w/ switch + JST (ADA4191)](https://core-electronics.com.au/2-x-aaa-battery-holder-with-on-off-switch-jst-ph-connector.html) · [Altronics S5055](https://www.altronics.com.au/p/s5055-2-x-aaa-battery-holder-with-on-off-switch/) | kit / ~$3 |
+| **Battery** | 2×AAA — **use the Bambu kit spring terminals** in the printed compartment (leads to the **`3V3` pin**, *not* the BAT pads — see note below). *Easier ready-made fallback:* 2×AAA holder w/ switch + JST | Fallback: [Core Electronics — 2×AAA holder w/ switch + JST (ADA4191)](https://core-electronics.com.au/2-x-aaa-battery-holder-with-on-off-switch-jst-ph-connector.html) · [Altronics S5055](https://www.altronics.com.au/p/s5055-2-x-aaa-battery-holder-with-on-off-switch/) | kit / ~$3 |
 | AAA cells | **Energizer Ultimate Lithium AAA** (best longevity + cold/voltage hold) | Any supermarket / Amazon AU | ~$10/4pk |
 | **Button** (join/reset) | Mini SPST tactile, PCB/breadboard | [Core Electronics — Pololu 5-pack](https://core-electronics.com.au/mini-pushbutton-switch-pcb-mount-2-pin-spst-50ma-5-pack.html) · [Jaycar SP0611](https://www.jaycar.com.au/spst-pcb-tactile-switch/p/SP0611) | ~$1–5 |
 | Mount tape | 3M VHB / foam mounting tape (light-sealing) | Jaycar / Bunnings (generic) | ~$5 |
@@ -61,6 +61,24 @@ Notes: flashing is **UF2 over USB** (double-tap reset) or SWD pads — no debugg
 needed to load firmware (J-Link/RTT optional for debug). Zigbee **coordinator
 assumed already owned** (you run Z2M); not in BOM. Avoid the Jaycar ZD1950
 phototransistor — it's IR-only and your meter LED is visible red.
+
+> **Two corrections where the build diverged from this BOM.** The decisions
+> below were made before the firmware existed; implementation overtook them.
+>
+> **Battery goes to the `3V3` pin, not the BAT pads.** This BOM originally
+> said BAT pads. The firmware reads the SoC's internal VDD tap
+> (`NRF_SAADC_VDD`), which sees the `3V3` rail directly — cells wired to the
+> BAT pads instead report **100% battery forever**, because that path is a
+> divider on P0.31/AIN7 gated by P0.14 and the firmware never reads it. See
+> [hardware.md → Battery wiring](../../docs/hardware.md#battery-wiring).
+>
+> **Plain vs Sense.** This BOM specifies the plain variant, and both variants
+> do now compile ([#75](https://github.com/kwood1992/nRF52840-power-meter/issues/75)).
+> But every bench measurement, join test and power number in this repo was
+> taken on a **Sense**, and no plain board has ever been flashed. The plain
+> board is expected to work — the pinout is identical on every pin this
+> project uses — but "expected" is doing real work in that sentence. Buy the
+> Sense unless you intend to be the one who validates the plain board.
 
 ## Firmware structure (Zephyr)
 
