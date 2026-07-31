@@ -26,12 +26,22 @@ name: Firmware build
 # fails with "west: not found". The job-level `defaults.run.shell: bash`
 # below is what makes the image's own setup apply — don't drop it.
 
+# Runs on every PR, with no `paths:` filter, and that is deliberate.
+#
+# firmware-build is a REQUIRED check on main. A required check that never
+# runs does not count as passing — GitHub parks the PR on "Expected —
+# waiting for status to be reported" and the merge button stays disabled
+# forever, with no failing job anywhere to explain why. A `paths:` filter
+# would do exactly that to every docs-only PR.
+#
+# (A job skipped by an `if:` condition is fine — that reports a real check
+# run with conclusion "skipped", which satisfies the requirement. It is a
+# workflow filtered out at the trigger that produces nothing at all.)
+#
+# The cost of always running is ~2.3 min on a warm cache. That is cheap
+# next to a merge that is blocked for reasons nothing on the page states.
 on:
   pull_request:
-    paths:
-      - 'seeed-studio-zigbee-energy-meter/**'
-      - 'west.yml'
-      - '.github/workflows/firmware.yml'
   push:
     branches: [main]
   workflow_dispatch:
