@@ -19,7 +19,7 @@ assembling the physical device or changing the pin assignments.
 | Variant | Board target for `west build -b` | Status |
 |---|---|---|
 | XIAO nRF52840 **Sense** | `xiao_ble/nrf52840/sense` | **Supported.** The bench rig board; mounts as `XIAO-SENSE` in bootloader mode. |
-| XIAO nRF52840 (plain) | `xiao_ble/nrf52840` | **Builds, untested on hardware.** CI compiles it every PR, but nobody has flashed one. The design doc's BOM specifies this variant, so it should work — if you run one, please report back. |
+| XIAO nRF52840 (plain) | `xiao_ble/nrf52840` | **Builds, untested on hardware.** CI compiles it every PR, but nobody has flashed one. The design doc's BOM specifies this variant, so it should work — if you run one, please report findings and power numbers in [#82](https://github.com/kwood1992/nRF52840-power-meter/issues/82). |
 
 The two boards are electrically equivalent for this project's purposes — the
 Sense just adds an IMU and a PDM microphone, neither of which the firmware

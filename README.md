@@ -59,10 +59,11 @@ Prefer not to build the firmware yourself? Every push produces a UF2
 artifact — grab it from the
 [Actions tab](https://github.com/kwood1992/nRF52840-power-meter/actions/workflows/firmware.yml).
 
-> **Either board variant compiles, but prefer the Sense.** Both
+> **Either board variant compiles, but buy the Sense.** Both
 > `xiao_ble/nrf52840/sense` and plain `xiao_ble/nrf52840` build in CI. Every
-> bench measurement here was taken on a Sense, though, and no plain board has
-> ever been flashed — so the Sense is the known-good path.
+> bench measurement here was taken on a Sense, though, and **no plain board
+> has ever been flashed** — so the Sense is the only known-good path.
+> [Help wanted below](#own-a-plain-non-sense-xiao-help-wanted).
 
 > **Two things that will cost you an evening if you skip them.**
 >
@@ -73,6 +74,41 @@ artifact — grab it from the
 > - **Wire the battery to the `3V3` pin, not the `BAT` pads.** The firmware
 >   reads the SoC's internal VDD tap, so cells on `BAT` make battery
 >   percentage read 100% forever. [Details](docs/hardware.md#battery-wiring).
+
+### Own a plain (non-Sense) XIAO? Help wanted
+
+**You don't need to write code for this — you need the hardware.**
+
+The plain `xiao_ble/nrf52840` is what the design-doc BOM specifies, and CI
+compiles it on every PR. Nobody has ever run it. Every measurement, join test
+and power figure in this repo came off a Sense.
+
+The two boards are electrically equivalent on every pin this project touches,
+so the plain one *should* work — but that's inference, not evidence, and it's
+the kind of assumption that tends to be wrong in one small annoying way rather
+than not at all. If you have one, running it would close a gap nothing else
+can. Any of these helps, and "this bit didn't work" is as useful as "it did":
+
+- **Does it flash?** Double-tap reset, and — importantly — **what volume name
+  mounts?** The Sense shows `XIAO-SENSE`, and `tools/flash.sh` assumes that
+  name. If yours differs, that's a real tooling bug.
+- **Does it work?** Joins Zigbee2MQTT, counts pulses 1:1, reports energy,
+  survives a reset, LED behaves as documented.
+- **Power numbers** — the most valuable part, and the one thing that can't be
+  inferred from a Sense. The Sense carries an IMU whose regulator boots ON at
+  ~0.6–1.7 mA and which the firmware explicitly disables; the plain board has
+  none of that hardware, so its sleep floor may legitimately differ, and
+  nobody knows in which direction. For reference the Sense's post-POR sleep
+  floor is 0.1–0.2 mA.
+
+Report anything you find in
+**[#82](https://github.com/kwood1992/nRF52840-power-meter/issues/82)** — it
+lists what to measure and the two traps that will otherwise make your numbers
+lie. Partial results are welcome.
+
+If the plain board checks out, the docs stop hedging and it gets promoted from
+*builds, untested* to supported. If it doesn't, that's worth knowing and the
+BOM needs to change.
 
 ### Quick reference
 
