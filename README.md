@@ -292,6 +292,15 @@ the calibration on first install, then leave it alone.
 Issues and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md)
 for toolchain setup, the test suites, and the PR process.
 
+`main` is protected: changes land via pull request, and five checks must pass
+before merge — `host-tests`, `tooling-tests`, `shellcheck`, and a Zephyr build
+for both board variants.
+
+CI passing is not the bar. Anything touching firmware is expected to have been
+flashed and exercised on real hardware first, with the measured power numbers
+reported in the PR — a green build says the code compiles, not that the device
+still joins, still counts, or still sleeps.
+
 ## License
 
 [GNU GPL v3](LICENSE).
