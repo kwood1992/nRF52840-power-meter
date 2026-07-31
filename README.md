@@ -292,6 +292,11 @@ the calibration on first install, then leave it alone.
 Issues and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md)
 for toolchain setup, the test suites, and the PR process.
 
+`main` is protected: changes land via pull request, and five checks must pass
+before merge — `host-tests`, `tooling-tests`, `shellcheck`, and a Zephyr build
+for both board variants. Every PR also publishes installable UF2 and hex
+artifacts, so you can test a change on hardware without a local toolchain.
+
 ## License
 
 [GNU GPL v3](LICENSE).
