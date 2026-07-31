@@ -296,11 +296,10 @@ for toolchain setup, the test suites, and the PR process.
 before merge — `host-tests`, `tooling-tests`, `shellcheck`, and a Zephyr build
 for both board variants.
 
-Each firmware build attaches its UF2 and hex to the workflow run on the
-[Actions tab](https://github.com/kwood1992/nRF52840-power-meter/actions/workflows/firmware.yml),
-so you can flash a PR without a local toolchain. These are GitHub Actions run
-artifacts — downloadable zips that expire on the repo's retention setting. No
-build output is ever committed to the repository.
+CI passing is not the bar. Anything touching firmware is expected to have been
+flashed and exercised on real hardware first, with the measured power numbers
+reported in the PR — a green build says the code compiles, not that the device
+still joins, still counts, or still sleeps.
 
 ## License
 

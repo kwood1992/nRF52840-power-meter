@@ -442,6 +442,29 @@ D7 injection path.
 > low adds ~0.24 mA through the pin's pull-up (subtract a duty-matched
 > control), and an LED torch's PWM flicker causes 3–4× pulse overcounting.
 
+#### Power numbers are required in the PR
+
+Every firmware change reports measured current, before and after, in the
+pull-request body. The template has the table.
+
+This is not ceremony. Current draw is a product requirement here — the device
+is meant to last years on two AAA cells — and it is the one regression
+nothing else catches. Host tests pass, CI goes green, the device joins and
+counts correctly, and the only symptom is that the batteries die months
+early, long after anyone remembers which PR did it.
+
+Two things to get right or the numbers mislead:
+
+- **Confirm the power-cycle took.** A POR is non-deterministic and silently
+  fails to take roughly half the time. A failed POR reads as a tight,
+  unimodal ~1.5 mA peak — if you see that, you're measuring the previous
+  state, not your change.
+- **Subtract your controls**, per the traps above.
+
+"No measurable change" is a perfectly good result — but report it because you
+measured, not because you expect it. If a change genuinely can't affect power
+(a log string, a host-side test, docs), say which and why, and skip the table.
+
 ---
 
 ## Project rules

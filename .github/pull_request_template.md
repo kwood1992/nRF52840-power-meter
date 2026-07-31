@@ -28,9 +28,38 @@ next person.
 Hardware paths (LPCOMP, PPI, radio, USB, GPIO, NVS) cannot be unit-tested,
 so they need bench evidence. A compile is not verification.
 
-Say what you actually ran and what you observed. Paste RTT/serial output,
-Z2M behaviour, or measured current. If this PR is pure logic or docs and
-touches no hardware path, write "N/A — no hardware path touched".
+Say what you actually ran and what you observed. Paste RTT/serial output and
+Z2M behaviour. If this PR is pure logic or docs and touches no hardware path,
+write "N/A — no hardware path touched" and skip the power section below.
+-->
+
+### Power numbers
+
+<!--
+REQUIRED for any firmware change. This device is meant to run for years on
+two AAA cells, so current draw is a product requirement, not a nice-to-have —
+and it is the one regression that no test, review or CI check will catch for
+you. It shows up months later as dead batteries.
+
+Report measured current before and after your change:
+
+| | Baseline (main) | This PR |
+|---|---|---|
+| Sleep floor (System-ON, idle) | | |
+| Average over a representative window | | |
+
+Also state:
+
+- How you measured it (INA219 harness, meter, window length)
+- Whether the board was power-cycled — a POR is non-deterministic and fails
+  to take roughly half the time; a failed POR reads as a tight ~1.5 mA peak
+- Which controls you subtracted. The D7 bench pull-up alone adds ~0.242 mA
+  during pulse runs, so an uncontrolled pulse measurement overstates the cost
+  by roughly 6x
+
+"No measurable change" is a fine result — but say it because you measured,
+not because you expect it. If the change genuinely cannot affect power (a
+string, a log line, a host-side test), say which and why.
 -->
 
 ## Cluster-list impact
