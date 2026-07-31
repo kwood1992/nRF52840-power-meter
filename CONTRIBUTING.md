@@ -80,11 +80,27 @@ Every PR gets:
 | `host-tests` | Pure-logic unit tests | Yes |
 | `tooling-tests` | Shell tooling regression tests | Yes |
 | `shellcheck` | Lints `tools/*.sh` at `warning` severity | Yes |
-| `firmware-build` | Full Zephyr build for both board variants | No (advisory) |
+| `firmware-build (sense)` | Zephyr build + devicetree assertions | Yes |
+| `firmware-build (plain)` | Zephyr build for the plain variant | Yes |
 
-The firmware build is advisory because it depends on a large external SDK
-fetch that can fail for reasons unrelated to your change. Don't ignore it
-when it goes red — check whether it's your change or the network.
+The firmware build was advisory at first, because it depends on a large
+external SDK fetch that can fail for reasons unrelated to your change. It
+now blocks, because it carries a check that nothing else can: it asserts
+against the generated devicetree that the Sense IMU and its regulator are
+actually disabled. If `overlays/sense.overlay` ever stops being applied,
+every other check still passes, the build log is clean, the UF2 is valid —
+and the board draws an extra ~0.6–1.7 mA forever. An advisory check cannot
+stop that from being merged, so this one isn't advisory.
+
+The trade-off is real: a flaky SDK fetch can now block a merge. Re-run the
+job. If it's genuinely broken upstream rather than your change, an admin
+can bypass — that is what the bypass actor on the ruleset is for.
+
+`firmware-build` runs on **every** PR, including docs-only ones, with no
+`paths:` filter. That is deliberate and must stay: a required check that is
+filtered out at the trigger produces no check run at all, and GitHub blocks
+the PR on "Expected — waiting for status" with nothing on the page saying
+why. A ~2.3 min build on a docs PR is much cheaper than that.
 
 It also publishes UF2 and hex artifacts for both board variants, which is
 the easiest way to test a PR's firmware without a local toolchain.
